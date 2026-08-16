@@ -215,7 +215,7 @@ class TailwindRenderer
             . sprintf($editButton, 'inline-flex items-center gap-1', '')
             . '<span class="relative inline-block appycrud-menu-wrap">'
             . '<button type="button" onclick="appycrudToggleMenu(this)" aria-label="' . $this->e($t->t('list.more_actions')) . '" class="text-gray-500 hover:text-gray-800 p-1 rounded hover:bg-gray-100">' . $this->icon('dots') . '</button>'
-            . '<div class="hidden appycrud-menu absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-20 overflow-hidden">' . $menuItems . '</div>'
+            . '<div class="hidden appycrud-menu w-40 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">' . $menuItems . '</div>'
             . '</span>'
             . '</span>';
     }
@@ -240,7 +240,7 @@ class TailwindRenderer
 
         return '<span class="relative inline-block appycrud-menu-wrap">'
             . '<button type="button" onclick="appycrudToggleMenu(this)" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('download') . '<span>' . $this->e($t->t('list.export')) . '</span></button>'
-            . '<div class="hidden appycrud-menu absolute left-0 mt-1 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-20 overflow-hidden">' . $items . '</div>'
+            . '<div class="hidden appycrud-menu w-40 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">' . $items . '</div>'
             . '</span>';
     }
 
@@ -374,7 +374,20 @@ class TailwindRenderer
             document.querySelectorAll('.appycrud-menu').forEach(function (m) {
                 if (m !== menu) { m.classList.add('hidden'); }
             });
+
+            var opening = menu.classList.contains('hidden');
             menu.classList.toggle('hidden');
+
+            if (opening) {
+                // position: fixed (calculado desde el boton) para que el menu
+                // no quede recortado por el overflow-x-auto de la tabla.
+                var rect = button.getBoundingClientRect();
+                menu.style.position = 'fixed';
+                menu.style.top = (rect.bottom + 4) + 'px';
+                menu.style.left = 'auto';
+                menu.style.right = (window.innerWidth - rect.right) + 'px';
+                menu.style.zIndex = '9999';
+            }
         }
 
         document.addEventListener('click', function (e) {
