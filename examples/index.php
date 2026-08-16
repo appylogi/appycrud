@@ -72,9 +72,8 @@ $options = [
 $crud = new AppyCrud($connection, 'tareas', $config, $locale, $options);
 
 $baseUrl = strtok($_SERVER['REQUEST_URI'], '?');
-$html = $crud->handle($baseUrl, $_GET, $_POST);
-
 $isAjax = isset($_GET['ajax']) || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
+$html = $crud->handle($baseUrl, $_GET, $_POST, $isAjax);
 
 if ($isAjax) {
     echo $html;

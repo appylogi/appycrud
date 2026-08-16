@@ -38,15 +38,77 @@ class TailwindRenderer
         string $orderDir = 'ASC',
     ): string {
         $t = $this->translator;
+        $filtersEnabled = $features['filters'] ?? true;
+        $searchEnabled = $features['search'] ?? true;
+
+        $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
+        $modal = $this->renderModalShell();
+        $searchAndFilters = ($filtersEnabled || $searchEnabled)
+            ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled)
+            : '';
+
+        $toolbar = '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>';
+
+        if ($features['export'] ?? true) {
+            $toolbar .= $this->renderExportMenu($baseUrl, $activeFilters, $search);
+        }
+
+        $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
+
+        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir);
+
+        return <<<HTML
+        <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
+                <div class="flex items-center gap-2 print:hidden">{$toolbar}</div>
+            </div>
+            {$searchAndFilters}
+            <div id="appycrud-list-body">{$body}</div>
+        </div>
+        {$modal}
+        HTML;
+    }
+
+    /**
+     * Fragmento solo de tabla+paginacion (sin titulo/toolbar/formulario de
+     * filtros), pensado para reemplazar #appycrud-list-body por fetch cuando
+     * el usuario filtra/busca/ordena, sin recargar toda la pagina.
+     */
+    public function renderListBody(
+        TableSchema $schema,
+        array $pagination,
+        string $baseUrl,
+        string $deleteMode = DeleteMode::CONFIRM,
+        array $referenceOptions = [],
+        array $features = [],
+        array $activeFilters = [],
+        string $search = '',
+        string $orderBy = '',
+        string $orderDir = 'ASC',
+    ): string {
+        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir);
+    }
+
+    private function renderListInner(
+        TableSchema $schema,
+        array $pagination,
+        string $baseUrl,
+        string $deleteMode,
+        array $referenceOptions,
+        array $features,
+        array $activeFilters,
+        string $search,
+        string $orderBy,
+        string $orderDir,
+    ): string {
+        $t = $this->translator;
         $columns = $schema->visibleColumns();
         $pk = $schema->primaryKey();
 
         $bulkDeleteEnabled = ($features['bulkDelete'] ?? true) && $pk !== null;
         $viewEnabled = $features['view'] ?? true;
         $cloneEnabled = $features['clone'] ?? true;
-        $exportEnabled = $features['export'] ?? true;
-        $filtersEnabled = $features['filters'] ?? true;
-        $searchEnabled = $features['search'] ?? true;
 
         $referenceLabels = [];
         foreach ($referenceOptions as $columnName => $options) {
@@ -93,36 +155,15 @@ class TailwindRenderer
         }
 
         $pageInfo = $t->t('list.page_of', ['page' => $pagination['page'], 'lastPage' => $pagination['lastPage']]);
-        $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
-        $modal = $this->renderModalShell();
-        $searchAndFilters = ($filtersEnabled || $searchEnabled)
-            ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled)
-            : '';
-
-        $toolbar = '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>';
-
-        if ($exportEnabled) {
-            $toolbar .= $this->renderExportMenu($baseUrl, $activeFilters, $search);
-        }
-
-        $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
 
         return <<<HTML
-        <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
-            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-                <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
-                <div class="flex items-center gap-2 print:hidden">{$toolbar}</div>
-            </div>
-            {$searchAndFilters}
-            <div class="overflow-x-auto bg-white rounded-lg shadow">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50"><tr>{$headers}</tr></thead>
-                    <tbody>{$bodyRows}</tbody>
-                </table>
-            </div>
-            <p class="mt-3 text-sm text-gray-500 print:hidden">{$this->e($pageInfo)}</p>
+        <div class="overflow-x-auto bg-white rounded-lg shadow">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50"><tr>{$headers}</tr></thead>
+                <tbody>{$bodyRows}</tbody>
+            </table>
         </div>
-        {$modal}
+        <p class="mt-3 text-sm text-gray-500 print:hidden">{$this->e($pageInfo)}</p>
         HTML;
     }
 
@@ -279,7 +320,7 @@ class TailwindRenderer
             : '';
 
         return <<<HTML
-        <form method="get" action="{$this->e($baseUrl)}" class="flex flex-wrap items-center gap-2 mb-4 print:hidden">
+        <form method="get" action="{$this->e($baseUrl)}" class="flex flex-wrap items-center gap-2 mb-4 print:hidden" oninput="appycrudScheduleFilter(this)" onchange="appycrudScheduleFilter(this)" onsubmit="return appycrudSubmitFilters(event, this)">
             {$fields}
             {$orderHidden}
             <button type="submit" class="bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->e($t->t('list.filter_apply'))}</button>
@@ -353,6 +394,34 @@ class TailwindRenderer
                 c.checked = checkbox.checked;
             });
             appycrudUpdateBulkUI();
+        }
+
+        var appycrudFilterTimer = null;
+
+        function appycrudScheduleFilter(form) {
+            clearTimeout(appycrudFilterTimer);
+            appycrudFilterTimer = setTimeout(function () { appycrudApplyFilters(form); }, 350);
+        }
+
+        function appycrudSubmitFilters(event, form) {
+            event.preventDefault();
+            clearTimeout(appycrudFilterTimer);
+            appycrudApplyFilters(form);
+            return false;
+        }
+
+        function appycrudApplyFilters(form) {
+            var params = new URLSearchParams(new FormData(form));
+            var query = params.toString();
+            var url = form.getAttribute('action') + (query ? '?' + query : '');
+
+            history.replaceState(null, '', url);
+
+            fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.text(); })
+                .then(function (html) {
+                    document.getElementById('appycrud-list-body').innerHTML = html;
+                });
         }
 
         function appycrudUpdateBulkUI() {

@@ -89,10 +89,14 @@ class AppyCrud
     /**
      * Despacha la accion segun $_GET['action'] y devuelve el HTML resultante.
      * $baseUrl es la URL del propio script (para construir los enlaces).
+     * $isAjax indica si la peticion vino por fetch (header X-Requested-With) en
+     * vez de una navegacion normal del navegador; para la accion por defecto
+     * ('list') decide si se devuelve la pagina completa o solo el fragmento de
+     * tabla+paginacion (usado por el filtrado/busqueda instantaneos).
      * Algunas acciones (delete, bulkDelete, store/update validos, export, print)
      * terminan el request ellas mismas (redirect o salida directa).
      */
-    public function handle(string $baseUrl, array $get, array $post): string
+    public function handle(string $baseUrl, array $get, array $post, bool $isAjax = false): string
     {
         $action = $get['action'] ?? 'list';
 
@@ -113,7 +117,7 @@ class AppyCrud
             'bulkDelete' => $this->handleBulkDelete($post, $baseUrl),
             'export' => $this->handleExport($get),
             'print' => $this->handlePrint($get['id'] ?? ''),
-            default => $this->renderList($get, $baseUrl),
+            default => $isAjax ? $this->renderListBody($get, $baseUrl) : $this->renderList($get, $baseUrl),
         };
     }
 
@@ -133,6 +137,22 @@ class AppyCrud
 
     private function renderList(array $get, string $baseUrl): string
     {
+        [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
+
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir);
+    }
+
+    /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */
+    private function renderListBody(array $get, string $baseUrl): string
+    {
+        [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
+
+        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir);
+    }
+
+    /** @return array{0: array, 1: array<string,string>, 2: string, 3: string, 4: string} */
+    private function paginateFromRequest(array $get): array
+    {
         $page = max(1, (int) ($get['page'] ?? 1));
         $filters = $this->features['filters'] ? ($get['filter'] ?? []) : [];
         $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
@@ -141,7 +161,7 @@ class AppyCrud
 
         $pagination = $this->repository->paginate($page, 20, $orderBy, $orderDir, $filters, $search);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir);
+        return [$pagination, $filters, $search, $orderBy, $orderDir];
     }
 
     private function handleStore(array $post, string $baseUrl): string
