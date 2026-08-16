@@ -5,6 +5,7 @@ namespace Appylogi\AppyCrud\Renderer;
 use Appylogi\AppyCrud\Crud\DeleteMode;
 use Appylogi\AppyCrud\Lang\Translator;
 use Appylogi\AppyCrud\Schema\Column;
+use Appylogi\AppyCrud\Schema\FieldType;
 use Appylogi\AppyCrud\Schema\TableSchema;
 
 /**
@@ -314,7 +315,7 @@ class TailwindRenderer
             foreach ($schema->visibleColumns() as $column) {
                 $current = $activeFilters[$column->name] ?? '';
 
-                if ($column->inputType === 'checkbox') {
+                if (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
                     $fields .= '<select name="filter[' . $this->e($column->name) . ']" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white">'
                         . '<option value="">' . $this->e($column->label) . '</option>'
                         . '<option value="1"' . ($current === '1' ? ' selected' : '') . '>Si</option>'
@@ -384,6 +385,28 @@ class TailwindRenderer
         }
         function appycrudCloseModal() {
             document.getElementById('appycrud-dialog').close();
+        }
+
+        function appycrudTogglePassword(button) {
+            var input = button.previousElementSibling;
+            input.type = input.type === 'password' ? 'text' : 'password';
+        }
+
+        function appycrudSyncDatalist(input) {
+            var hidden = input.nextElementSibling;
+            var list = document.getElementById(input.getAttribute('list'));
+            var match = null;
+            list.querySelectorAll('option').forEach(function (opt) {
+                if (opt.value === input.value) { match = opt.getAttribute('data-value'); }
+            });
+            hidden.value = match !== null ? match : '';
+        }
+
+        function appycrudFilterMultiselect(input) {
+            var term = input.value.toLowerCase();
+            input.closest('[data-appycrud-multiselect]').querySelectorAll('.appycrud-ms-option').forEach(function (opt) {
+                opt.style.display = opt.textContent.toLowerCase().includes(term) ? '' : 'none';
+            });
         }
         function appycrudSubmitForm(event, form) {
             event.preventDefault();
@@ -541,7 +564,8 @@ class TailwindRenderer
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones del select
      * @param array<string, string[]> $errors columna => mensajes de error
      */
-    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = ''): string
+    /** @param string[]|null $fieldsWhitelist si no es null, solo estas columnas aparecen en el formulario */
+    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = '', ?array $fieldsWhitelist = null): string
     {
         $t = $this->translator;
         $pk = $schema->primaryKey();
@@ -552,6 +576,10 @@ class TailwindRenderer
         $fields = '';
         foreach ($schema->visibleColumns() as $column) {
             if ($column->isPrimaryKey || $column->readOnly) {
+                continue;
+            }
+
+            if ($fieldsWhitelist !== null && !in_array($column->name, $fieldsWhitelist, true)) {
                 continue;
             }
 
@@ -679,31 +707,58 @@ class TailwindRenderer
      * @param array<int, array{value: mixed, label: string}> $options
      * @param string[] $errorMessages
      */
+    /**
+     * @param array<int, array{value: mixed, label: string}> $options opciones para reference/dropdown/enum/multiselect
+     *   (si $column->reference !== null vienen de la tabla referenciada; si no, de $column->options)
+     * @param string[] $errorMessages
+     */
     private function renderField(Column $column, string $value, array $options = [], array $errorMessages = []): string
     {
-        $label = '<label class="block text-sm font-medium text-gray-700 mb-1">' . $this->e($column->label) . '</label>';
-        $errorClass = $errorMessages !== [] ? ' border-red-400' : '';
+        $strategy = FieldType::strategy($column->inputType ?? '');
 
-        if ($column->reference !== null) {
-            $optionsHtml = '<option value="">&mdash;</option>';
-            foreach ($options as $option) {
-                $selected = (string) $option['value'] === $value ? ' selected' : '';
-                $optionsHtml .= '<option value="' . $this->e((string) $option['value']) . '"' . $selected . '>' . $this->e((string) $option['label']) . '</option>';
-            }
-            $input = '<select name="' . $this->e($column->name) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white' . $errorClass . '"'
-                . (!$column->nullable ? ' required' : '')
-                . '>' . $optionsHtml . '</select>';
-        } elseif ($column->inputType === 'textarea') {
-            $input = '<textarea name="' . $this->e($column->name) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm' . $errorClass . '" rows="4">' . $this->e($value) . '</textarea>';
-        } elseif ($column->inputType === 'checkbox') {
-            $checked = $value ? 'checked' : '';
-            $input = '<input type="checkbox" name="' . $this->e($column->name) . '" ' . $checked . ' class="rounded border-gray-300">';
-        } else {
-            $input = '<input type="' . $this->e($column->inputType) . '" name="' . $this->e($column->name) . '" value="' . $this->e($value) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm' . $errorClass . '"'
-                . ($column->maxLength !== null ? ' maxlength="' . $column->maxLength . '"' : '')
-                . (!$column->nullable ? ' required' : '')
-                . '>';
+        // Una llave foranea siempre debe verse como select/combobox, sin importar
+        // que inputType haya adivinado la introspeccion sobre la columna cruda
+        // (ej. 'number' para un INTEGER) — salvo que el override pida explicitamente
+        // otro widget de la misma familia (dropdown_search, multiselect...).
+        $selectFamily = [FieldType::STRATEGY_SELECT, FieldType::STRATEGY_SELECT_SEARCHABLE, FieldType::STRATEGY_MULTISELECT, FieldType::STRATEGY_MULTISELECT_SEARCHABLE];
+        if ($column->reference !== null && !in_array($strategy, $selectFamily, true)) {
+            $strategy = FieldType::STRATEGY_SELECT;
         }
+
+        if ($strategy === FieldType::STRATEGY_INVISIBLE) {
+            return '';
+        }
+
+        $name = $this->e($column->name);
+        $baseClass = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm';
+        $errorClass = $errorMessages !== [] ? ' border-red-400' : '';
+        $required = !$column->nullable ? ' required' : '';
+        $optionSource = $column->reference !== null ? $options : $column->options;
+
+        if ($strategy === FieldType::STRATEGY_HIDDEN) {
+            return '<input type="hidden" name="' . $name . '" value="' . $this->e($value) . '">';
+        }
+
+        $label = '<label class="block text-sm font-medium text-gray-700 mb-1">' . $this->e($column->label) . '</label>';
+
+        $input = match ($strategy) {
+            FieldType::STRATEGY_TEXTAREA => '<textarea name="' . $name . '" class="' . $baseClass . $errorClass . '" rows="4"' . $required . '>' . $this->e($value) . '</textarea>',
+            FieldType::STRATEGY_CHECKBOX => '<input type="checkbox" name="' . $name . '" value="1"' . ($value ? ' checked' : '') . ' class="rounded border-gray-300">',
+            FieldType::STRATEGY_INT => $this->renderTextLikeInput('number', $name, $value, $baseClass . $errorClass, $required, $column->maxLength, ['step' => '1']),
+            FieldType::STRATEGY_FLOAT => $this->renderTextLikeInput('number', $name, $value, $baseClass . $errorClass, $required, $column->maxLength, ['step' => 'any']),
+            FieldType::STRATEGY_DATE => $this->renderTextLikeInput('date', $name, $value, $baseClass . $errorClass, $required, null),
+            FieldType::STRATEGY_DATETIME => $this->renderTextLikeInput('datetime-local', $name, $value, $baseClass . $errorClass, $required, null),
+            FieldType::STRATEGY_TIME => $this->renderTextLikeInput('time', $name, $value, $baseClass . $errorClass, $required, null),
+            FieldType::STRATEGY_EMAIL => $this->renderTextLikeInput('email', $name, $value, $baseClass . $errorClass, $required, $column->maxLength),
+            FieldType::STRATEGY_COLOR => '<input type="color" name="' . $name . '" value="' . $this->e($value !== '' ? $value : '#000000') . '" class="h-10 w-16 border border-gray-300 rounded-md">',
+            FieldType::STRATEGY_PASSWORD => $this->renderTextLikeInput('password', $name, '', $baseClass . $errorClass, $required, $column->maxLength),
+            FieldType::STRATEGY_PASSWORD_TOGGLE => $this->renderPasswordToggle($name, $baseClass . $errorClass, $required, $column->maxLength),
+            FieldType::STRATEGY_SELECT => $this->renderSelect($name, $value, $optionSource, $required, $baseClass . $errorClass),
+            FieldType::STRATEGY_SELECT_SEARCHABLE => $this->renderSearchableSelect($column, $name, $value, $optionSource, $required, $baseClass . $errorClass),
+            FieldType::STRATEGY_MULTISELECT => $this->renderMultiselect($name, $value, $optionSource, $baseClass . $errorClass),
+            FieldType::STRATEGY_MULTISELECT_SEARCHABLE => $this->renderMultiselectSearchable($name, $value, $optionSource),
+            default => $this->renderTextLikeInput('text', $name, $value, $baseClass . $errorClass, $required, $column->maxLength),
+        };
 
         $errorHtml = '';
         foreach ($errorMessages as $message) {
@@ -711,6 +766,109 @@ class TailwindRenderer
         }
 
         return '<div>' . $label . $input . $errorHtml . '</div>';
+    }
+
+    /** @param array<string,string> $extraAttrs */
+    private function renderTextLikeInput(string $type, string $name, string $value, string $class, string $required, ?int $maxLength, array $extraAttrs = []): string
+    {
+        $attrs = '';
+        foreach ($extraAttrs as $attrName => $attrValue) {
+            $attrs .= ' ' . $attrName . '="' . $this->e($attrValue) . '"';
+        }
+
+        return '<input type="' . $type . '" name="' . $name . '" value="' . $this->e($value) . '" class="' . $class . '"'
+            . ($maxLength !== null ? ' maxlength="' . $maxLength . '"' : '')
+            . $required . $attrs . '>';
+    }
+
+    private function renderPasswordToggle(string $name, string $class, string $required, ?int $maxLength): string
+    {
+        return '<div class="relative">'
+            . '<input type="password" name="' . $name . '" value="" class="' . $class . ' pr-10"'
+            . ($maxLength !== null ? ' maxlength="' . $maxLength . '"' : '')
+            . $required . '>'
+            . '<button type="button" onclick="appycrudTogglePassword(this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">' . $this->icon('eye') . '</button>'
+            . '</div>';
+    }
+
+    /** @param array<int, array{value: mixed, label: string}> $options */
+    private function renderSelect(string $name, string $value, array $options, string $required, string $class): string
+    {
+        $optionsHtml = '<option value="">&mdash;</option>';
+        foreach ($options as $option) {
+            $selected = (string) $option['value'] === $value ? ' selected' : '';
+            $optionsHtml .= '<option value="' . $this->e((string) $option['value']) . '"' . $selected . '>' . $this->e((string) $option['label']) . '</option>';
+        }
+
+        return '<select name="' . $name . '" class="' . $class . ' bg-white"' . $required . '>' . $optionsHtml . '</select>';
+    }
+
+    /**
+     * Combobox buscable sin JS de terceros: <input list> + <datalist> (nativo
+     * del navegador) para filtrar, con un input oculto que guarda el value
+     * real (no el label) sincronizado por appycrudSyncDatalist().
+     * @param array<int, array{value: mixed, label: string}> $options
+     */
+    private function renderSearchableSelect(Column $column, string $name, string $value, array $options, string $required, string $class): string
+    {
+        $listId = 'dl_' . preg_replace('/[^a-zA-Z0-9_]/', '_', $column->name);
+        $currentLabel = '';
+
+        $datalistOptions = '';
+        foreach ($options as $option) {
+            $optionValue = (string) $option['value'];
+            $optionLabel = (string) $option['label'];
+
+            if ($optionValue === $value) {
+                $currentLabel = $optionLabel;
+            }
+
+            $datalistOptions .= '<option data-value="' . $this->e($optionValue) . '" value="' . $this->e($optionLabel) . '">';
+        }
+
+        return '<input type="text" list="' . $listId . '" value="' . $this->e($currentLabel) . '" class="' . $class . '" oninput="appycrudSyncDatalist(this)" autocomplete="off">'
+            . '<input type="hidden" name="' . $name . '" value="' . $this->e($value) . '"' . $required . '>'
+            . '<datalist id="' . $listId . '">' . $datalistOptions . '</datalist>';
+    }
+
+    /** @param array<int, array{value: mixed, label: string}> $options */
+    private function renderMultiselect(string $name, string $value, array $options, string $class): string
+    {
+        $selected = $value !== '' ? explode(',', $value) : [];
+
+        $optionsHtml = '';
+        foreach ($options as $option) {
+            $optionValue = (string) $option['value'];
+            $isSelected = in_array($optionValue, $selected, true) ? ' selected' : '';
+            $optionsHtml .= '<option value="' . $this->e($optionValue) . '"' . $isSelected . '>' . $this->e((string) $option['label']) . '</option>';
+        }
+
+        return '<select name="' . $name . '[]" multiple class="' . $class . ' bg-white h-32">' . $optionsHtml . '</select>';
+    }
+
+    /**
+     * Checkboxes con un filtro de texto arriba (vanilla JS), para cuando el
+     * multiselect nativo tiene demasiadas opciones para desplazarse comodo.
+     * @param array<int, array{value: mixed, label: string}> $options
+     */
+    private function renderMultiselectSearchable(string $name, string $value, array $options): string
+    {
+        $selected = $value !== '' ? explode(',', $value) : [];
+
+        $checkboxes = '';
+        foreach ($options as $option) {
+            $optionValue = (string) $option['value'];
+            $isChecked = in_array($optionValue, $selected, true) ? ' checked' : '';
+            $checkboxes .= '<label class="appycrud-ms-option flex items-center gap-2 text-sm py-0.5">'
+                . '<input type="checkbox" name="' . $name . '[]" value="' . $this->e($optionValue) . '"' . $isChecked . '>'
+                . '<span>' . $this->e((string) $option['label']) . '</span>'
+                . '</label>';
+        }
+
+        return '<div data-appycrud-multiselect class="border border-gray-300 rounded-md p-2">'
+            . '<input type="text" placeholder="' . $this->e($this->translator->t('list.search_placeholder')) . '" class="w-full mb-2 text-xs border-b border-gray-200 pb-1 focus:outline-none" oninput="appycrudFilterMultiselect(this)">'
+            . '<div class="max-h-32 overflow-y-auto">' . $checkboxes . '</div>'
+            . '</div>';
     }
 
     /**

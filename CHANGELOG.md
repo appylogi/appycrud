@@ -20,3 +20,7 @@ Primera versión.
 - i18n español/inglés incluido, extensible con un archivo nuevo en `lang/`.
 - Autoloader manual (`autoload.php`) para instalación sin Composer.
 - Protección CSRF activada por default (token por sesión, exigido en store/update/delete/bulkDelete); desactivable con `'csrf' => false`.
+- Orden por defecto configurable (`defaultOrderBy`/`defaultOrderDir`); el orden por columna (clic en encabezado, asc/desc) ya funcionaba para cualquier columna real.
+- Scoping vía `where`/`whereIn`/`whereNotIn`/`whereNull`/`whereNotNull` (clase `Condition`), aplicado a listado, exportar, ver, editar y eliminar (no solo al listado) — pensado para multi-tenant o "solo mis registros". Complementado con `insertDefaults` para forzar valores en cada insert.
+- `insertFields`/`editFields`: restringen qué columnas aparecen y se aceptan al crear/editar, con enforcement real server-side (no solo ocultar el campo en el HTML).
+- Catálogo de 24 tipos de campo (`FieldType`): boolean, color, date/native_date, datetime/native_datetime/timestamp, native_time, dropdown, dropdown_search, enum, enum_searchable, email, float/numeric, hidden, int, invisible, multiselect_native, multiselect_searchable, password, password_toggle, relational_native, string, text. Varios son alias intencionales del mismo widget. Autodetección de columnas `ENUM` de MySQL (parsea los valores reales). `dropdown_search`/`enum_searchable` usan `<datalist>` nativo (sin JS de terceros); `multiselect_*` se guardan como CSV en una sola columna.

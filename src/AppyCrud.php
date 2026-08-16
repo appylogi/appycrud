@@ -2,6 +2,7 @@
 
 namespace Appylogi\AppyCrud;
 
+use Appylogi\AppyCrud\Crud\Condition;
 use Appylogi\AppyCrud\Crud\Csrf;
 use Appylogi\AppyCrud\Crud\CrudRepository;
 use Appylogi\AppyCrud\Crud\DeleteMode;
@@ -9,6 +10,7 @@ use Appylogi\AppyCrud\Crud\Validator;
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Lang\Translator;
 use Appylogi\AppyCrud\Renderer\TailwindRenderer;
+use Appylogi\AppyCrud\Schema\FieldType;
 use Appylogi\AppyCrud\Schema\TableConfig;
 use Appylogi\AppyCrud\Schema\TableIntrospector;
 use Appylogi\AppyCrud\Schema\TableSchema;
@@ -36,6 +38,18 @@ use InvalidArgumentException;
  *     un token de sesion. Requiere session_start() antes de instanciar AppyCrud
  *     (lanza RuntimeException si no hay sesion activa); desactivalo con false
  *     si tu aplicacion ya maneja CSRF a otro nivel.
+ *   - 'where' => Condition[] condiciones base (scoping), SIEMPRE aplicadas:
+ *     listado, exportar, ver, editar y eliminar. Ver Crud\Condition.
+ *   - 'insertDefaults' => array<string,mixed> valores forzados en cada insert,
+ *     ignorando lo que mande el cliente (ej. ['empresa_id' => $idEmpresaActual]).
+ *   - 'defaultOrderBy' / 'defaultOrderDir' => orden usado cuando la URL no trae
+ *     orderBy/orderDir explicitos (el usuario puede cambiarlo haciendo clic en
+ *     cualquier columna del listado).
+ *   - 'insertFields' / 'editFields' => string[]|null (default null = todas las
+ *     columnas visibles/editables). Si se indica, solo esas columnas aparecen
+ *     en el formulario correspondiente y solo esas se aceptan al guardar
+ *     (defensa en profundidad: aunque alguien arme un POST con campos extra,
+ *     se descartan).
  */
 class AppyCrud
 {
@@ -46,6 +60,10 @@ class AppyCrud
     private array $features;
     private bool $csrfEnabled;
     private string $csrfSessionKey;
+    private ?array $insertFields;
+    private ?array $editFields;
+    private string $defaultOrderBy;
+    private string $defaultOrderDir;
 
     public function __construct(
         private Connection $connection,
@@ -87,7 +105,16 @@ class AppyCrud
         $this->csrfEnabled = $options['csrf'] ?? true;
         $this->csrfSessionKey = 'appycrud_csrf_' . $table;
 
-        $this->repository = new CrudRepository($connection, $this->schema, $softDeleteColumn);
+        $this->insertFields = $options['insertFields'] ?? null;
+        $this->editFields = $options['editFields'] ?? null;
+        $this->defaultOrderBy = (string) ($options['defaultOrderBy'] ?? '');
+        $this->defaultOrderDir = (string) ($options['defaultOrderDir'] ?? 'ASC');
+
+        /** @var Condition[] $where */
+        $where = $options['where'] ?? [];
+        $insertDefaults = $options['insertDefaults'] ?? [];
+
+        $this->repository = new CrudRepository($connection, $this->schema, $softDeleteColumn, $where, $insertDefaults);
         $this->renderer = new TailwindRenderer(new Translator($locale));
     }
 
@@ -121,8 +148,8 @@ class AppyCrud
         $action = $get['action'] ?? 'list';
 
         return match ($action) {
-            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken()),
-            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken()),
+            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields),
+            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), '', $this->editFields),
             'view' => $this->renderer->renderView($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, (string) ($get['id'] ?? ''), $this->referenceOptions()),
             'clone' => $this->renderer->renderForm(
                 $this->schema,
@@ -132,6 +159,8 @@ class AppyCrud
                 $this->referenceOptions(),
                 [],
                 $this->csrfToken(),
+                '',
+                $this->insertFields,
             ),
             'store' => $this->handleStore($post, $baseUrl),
             'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl),
@@ -178,8 +207,8 @@ class AppyCrud
         $page = max(1, (int) ($get['page'] ?? 1));
         $filters = $this->features['filters'] ? ($get['filter'] ?? []) : [];
         $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
-        $orderBy = (string) ($get['orderBy'] ?? '');
-        $orderDir = (string) ($get['orderDir'] ?? 'ASC');
+        $orderBy = (string) ($get['orderBy'] ?? $this->defaultOrderBy);
+        $orderDir = (string) ($get['orderDir'] ?? $this->defaultOrderDir);
 
         $pagination = $this->repository->paginate($page, 20, $orderBy, $orderDir, $filters, $search);
 
@@ -190,14 +219,15 @@ class AppyCrud
     {
         if (!$this->verifyCsrf($post)) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage());
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->insertFields);
         }
 
+        $post = $this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields));
         $errors = Validator::validate($this->schema, $post);
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors, $this->csrfToken());
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors, $this->csrfToken(), '', $this->insertFields);
         }
 
         $this->repository->insert($post);
@@ -211,14 +241,16 @@ class AppyCrud
 
         if (!$this->verifyCsrf($post)) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage());
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->editFields);
         }
 
+        $post = $this->normalizeMultiselectFields($this->restrictToFields($post, $this->editFields));
+        $values = $pk !== null ? $post + [$pk->name => $id] : $post;
         $errors = Validator::validate($this->schema, $post);
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors, $this->csrfToken());
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors, $this->csrfToken(), '', $this->editFields);
         }
 
         $this->repository->update($id, $post);
@@ -248,6 +280,24 @@ class AppyCrud
     private function csrfErrorMessage(): string
     {
         return $this->renderer->translate('form.csrf_error');
+    }
+
+    /** @param string[]|null $fields */
+    private function restrictToFields(array $data, ?array $fields): array
+    {
+        return $fields === null ? $data : array_intersect_key($data, array_flip($fields));
+    }
+
+    /** Los campos multiselect_native/multiselect_searchable llegan como array (name[]); se guardan como CSV en una sola columna. */
+    private function normalizeMultiselectFields(array $data): array
+    {
+        foreach ($this->schema->columns() as $column) {
+            if (isset($data[$column->name]) && is_array($data[$column->name]) && FieldType::isMultiselect($column->inputType ?? '')) {
+                $data[$column->name] = implode(',', $data[$column->name]);
+            }
+        }
+
+        return $data;
     }
 
     private function handleExport(array $get): never

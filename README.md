@@ -15,6 +15,9 @@ Pensado como alternativa libre y descargable a herramientas como [GroceryCRUD](h
 - **Borrado masivo**, **clonar** (parametrizable: excluir columnas, agregar sufijo), **ver** de solo lectura, **imprimir** (registro o listado completo).
 - **Filtro por columna + búsqueda global + orden**, todo por AJAX con debounce (no recarga la página, sigue siendo consulta server-side — no se pierden resultados en tablas grandes con paginación).
 - **Exportar** a CSV, Excel (.xls) y Markdown, respetando los filtros activos.
+- **24 tipos de campo** (`boolean`, `dropdown_search`, `multiselect_native`, `password_toggle`, `relational_native`, etc.) — ver [catálogo completo](docs/uso.md#tipos-de-campo).
+- **Scoping** vía `where`/`whereIn` (multi-tenant, "solo mis registros") aplicado a listado, exportar, ver, editar y eliminar — no solo cosmético en el listado.
+- **Control de campos**: qué columnas se pueden insertar y cuáles editar, por separado.
 - **i18n** (español/inglés incluido, agregar un idioma es un archivo nuevo en `lang/`).
 - **Un solo sistema de diseño** (Tailwind, precompilado) para mantener todo consistente; la arquitectura permite agregar otros temas más adelante.
 
@@ -64,7 +67,8 @@ Eso ya te da un CRUD completo sobre la tabla `clientes`. Ver [docs/uso.md](docs/
 ## Documentación
 
 - [docs/instalacion.md](docs/instalacion.md) — requisitos, Composer vs. ZIP, verificación.
-- [docs/uso.md](docs/uso.md) — manual de uso: `TableConfig`, opciones de `AppyCrud`, i18n, personalización.
+- [docs/uso.md](docs/uso.md) — manual de uso: `TableConfig`, tipos de campo, scoping, opciones de `AppyCrud`, i18n, personalización.
+- [docs/tecnico.md](docs/tecnico.md) — manual técnico: arquitectura interna, cómo agregar un tipo de campo nuevo.
 - [docs/desarrollo.md](docs/desarrollo.md) — solo para quienes contribuyan al proyecto (regenerar el CSS de Tailwind).
 - [CHANGELOG.md](CHANGELOG.md) — historial de versiones.
 

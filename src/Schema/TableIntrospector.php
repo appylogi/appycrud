@@ -30,6 +30,8 @@ class TableIntrospector
         $schema = new TableSchema($table);
 
         foreach ($rows as $row) {
+            $enumOptions = $row['enumOptions'] ?? [];
+
             $column = new Column(
                 name: $row['name'],
                 type: $row['type'],
@@ -38,7 +40,9 @@ class TableIntrospector
                 isPrimaryKey: $row['isPrimaryKey'],
                 isAutoIncrement: $row['isAutoIncrement'],
                 maxLength: $row['maxLength'],
+                inputType: $enumOptions !== [] ? FieldType::DROPDOWN : null,
                 reference: $foreignKeys[$row['name']] ?? null,
+                options: $enumOptions,
             );
 
             if ($config !== null) {
@@ -117,7 +121,7 @@ class TableIntrospector
 
     private function introspectMysql(Connection $connection, string $table): array
     {
-        $sql = "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA, CHARACTER_MAXIMUM_LENGTH
+        $sql = "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA, CHARACTER_MAXIMUM_LENGTH
                 FROM information_schema.columns
                 WHERE table_schema = DATABASE() AND table_name = :table
                 ORDER BY ORDINAL_POSITION";
@@ -135,6 +139,7 @@ class TableIntrospector
                 'isPrimaryKey' => $r['COLUMN_KEY'] === 'PRI',
                 'isAutoIncrement' => str_contains($r['EXTRA'], 'auto_increment'),
                 'maxLength' => $r['CHARACTER_MAXIMUM_LENGTH'] !== null ? (int) $r['CHARACTER_MAXIMUM_LENGTH'] : null,
+                'enumOptions' => $r['DATA_TYPE'] === 'enum' ? $this->parseMysqlEnumOptions($r['COLUMN_TYPE']) : [],
             ];
         }
 
@@ -143,6 +148,29 @@ class TableIntrospector
         }
 
         return $rows;
+    }
+
+    /**
+     * MySQL expone ENUM('activo','inactivo') tal cual en COLUMN_TYPE; se
+     * parsean los valores para poblar un <select> automaticamente, sin que
+     * el integrador tenga que declararlos a mano.
+     * @return array<int, array{value: string, label: string}>
+     */
+    private function parseMysqlEnumOptions(string $columnType): array
+    {
+        if (preg_match('/^enum\((.+)\)$/i', $columnType, $matches) !== 1) {
+            return [];
+        }
+
+        preg_match_all("/'((?:[^'\\\\]|\\\\.)*)'/", $matches[1], $valueMatches);
+
+        $options = [];
+        foreach ($valueMatches[1] as $rawValue) {
+            $value = str_replace(["\\'", '\\\\'], ["'", '\\'], $rawValue);
+            $options[] = ['value' => $value, 'label' => $value];
+        }
+
+        return $options;
     }
 
     private function introspectPgsql(Connection $connection, string $table): array

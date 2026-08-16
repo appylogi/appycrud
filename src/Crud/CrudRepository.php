@@ -4,6 +4,7 @@ namespace Appylogi\AppyCrud\Crud;
 
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Schema\Column;
+use Appylogi\AppyCrud\Schema\FieldType;
 use Appylogi\AppyCrud\Schema\TableIntrospector;
 use Appylogi\AppyCrud\Schema\TableSchema;
 use RuntimeException;
@@ -15,11 +16,60 @@ use RuntimeException;
  */
 class CrudRepository
 {
+    /**
+     * @param Condition[] $baseConditions condiciones WHERE aplicadas siempre (scoping)
+     * @param array<string, mixed> $insertDefaults valores forzados en cada insert (ignora lo que mande el cliente)
+     */
     public function __construct(
         private Connection $connection,
         private TableSchema $schema,
         private ?string $softDeleteColumn = null,
+        private array $baseConditions = [],
+        private array $insertDefaults = [],
     ) {
+    }
+
+    /**
+     * SQL + params de las condiciones base (scoping), para combinar con el
+     * WHERE de cualquier operacion (listado, find, update, delete).
+     * @return array{0: string[], 1: array<string, mixed>}
+     */
+    private function baseConditionsSql(): array
+    {
+        $sqlParts = [];
+        $params = [];
+
+        foreach ($this->baseConditions as $index => $condition) {
+            $quotedColumn = $this->connection->quoteIdentifier($condition->column);
+            $paramPrefix = ':base_' . $index . '_';
+
+            if ($condition->operator === 'IN' || $condition->operator === 'NOT IN') {
+                $values = (array) $condition->value;
+
+                if ($values === []) {
+                    // IN() vacio no es SQL valido; una condicion sin valores no debe matchear nada.
+                    $sqlParts[] = '1 = 0';
+                    continue;
+                }
+
+                $placeholders = [];
+                foreach (array_values($values) as $i => $value) {
+                    $key = $paramPrefix . $i;
+                    $placeholders[] = $key;
+                    $params[$key] = $value;
+                }
+
+                $sqlParts[] = "{$quotedColumn} {$condition->operator} (" . implode(', ', $placeholders) . ')';
+            } elseif ($condition->operator === 'IS NULL' || $condition->operator === 'IS NOT NULL') {
+                $sqlParts[] = "{$quotedColumn} {$condition->operator}";
+            } else {
+                $key = $paramPrefix . '0';
+                $sqlParts[] = "{$quotedColumn} {$condition->operator} {$key}";
+                $params[$key] = $condition->value;
+            }
+        }
+
+        return [$sqlParts, $params];
     }
 
     public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = [], string $search = ''): array
@@ -69,8 +119,8 @@ class CrudRepository
      */
     private function buildWhereClause(array $filters, string $search = ''): array
     {
-        $conditions = [];
-        $params = [];
+        [$baseSql, $params] = $this->baseConditionsSql();
+        $conditions = $baseSql;
 
         if ($this->softDeleteColumn !== null) {
             $softColumn = $this->connection->quoteIdentifier($this->softDeleteColumn);
@@ -91,7 +141,7 @@ class CrudRepository
             $quotedColumn = $this->connection->quoteIdentifier($columnName);
             $paramKey = ':filter_' . $columnName;
 
-            if ($column->reference !== null || $column->inputType === 'checkbox') {
+            if ($column->reference !== null || FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
                 $conditions[] = "{$quotedColumn} = {$paramKey}";
                 $params[$paramKey] = $value;
             } else {
@@ -103,7 +153,7 @@ class CrudRepository
         if ($search !== '') {
             $searchConditions = [];
             foreach ($this->schema->visibleColumns() as $column) {
-                if ($column->reference !== null || $column->inputType === 'checkbox') {
+                if ($column->reference !== null || FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
                     continue;
                 }
 
@@ -272,22 +322,26 @@ class CrudRepository
         return $row;
     }
 
+    /** find/update/delete aplican las mismas condiciones base que el listado (scoping): un id de otro tenant/ambito simplemente no matchea. */
     public function find(mixed $primaryKeyValue): ?array
     {
         $pk = $this->requirePrimaryKey();
         $table = $this->connection->quoteIdentifier($this->schema->table);
         $pkColumn = $this->connection->quoteIdentifier($pk->name);
+        [$baseSql, $baseParams] = $this->baseConditionsSql();
+        $whereSql = implode(' AND ', array_merge(["{$pkColumn} = :pk"], $baseSql));
 
-        $stmt = $this->connection->pdo()->prepare("SELECT * FROM {$table} WHERE {$pkColumn} = :pk LIMIT 1");
-        $stmt->execute(['pk' => $primaryKeyValue]);
+        $stmt = $this->connection->pdo()->prepare("SELECT * FROM {$table} WHERE {$whereSql} LIMIT 1");
+        $stmt->execute(['pk' => $primaryKeyValue] + $baseParams);
         $row = $stmt->fetch();
 
         return $row === false ? null : $row;
     }
 
+    /** Los valores en $this->insertDefaults sobreescriben cualquier dato enviado por el cliente para esas columnas (ej. forzar empresa_id del usuario actual). */
     public function insert(array $data): string
     {
-        $data = $this->filterToKnownColumns($data);
+        $data = array_merge($this->filterToKnownColumns($data), $this->insertDefaults);
 
         if ($data === []) {
             throw new RuntimeException('AppyCrud: no hay columnas validas para insertar.');
@@ -323,11 +377,13 @@ class CrudRepository
         $table = $this->connection->quoteIdentifier($this->schema->table);
         $pkColumn = $this->connection->quoteIdentifier($pk->name);
         $sets = array_map(fn ($c) => $this->connection->quoteIdentifier($c) . ' = :' . $c, array_keys($data));
+        [$baseSql, $baseParams] = $this->baseConditionsSql();
+        $whereSql = implode(' AND ', array_merge(["{$pkColumn} = :__pk"], $baseSql));
 
-        $sql = sprintf('UPDATE %s SET %s WHERE %s = :__pk', $table, implode(', ', $sets), $pkColumn);
+        $sql = sprintf('UPDATE %s SET %s WHERE %s', $table, implode(', ', $sets), $whereSql);
 
         $stmt = $this->connection->pdo()->prepare($sql);
-        $stmt->execute($data + ['__pk' => $primaryKeyValue]);
+        $stmt->execute($data + ['__pk' => $primaryKeyValue] + $baseParams);
     }
 
     public function delete(mixed $primaryKeyValue): void
@@ -335,16 +391,19 @@ class CrudRepository
         $pk = $this->requirePrimaryKey();
         $table = $this->connection->quoteIdentifier($this->schema->table);
         $pkColumn = $this->connection->quoteIdentifier($pk->name);
+        [$baseSql, $baseParams] = $this->baseConditionsSql();
+        $whereSql = implode(' AND ', array_merge(["{$pkColumn} = :pk"], $baseSql));
+        $params = ['pk' => $primaryKeyValue] + $baseParams;
 
         if ($this->softDeleteColumn !== null) {
             $softColumn = $this->connection->quoteIdentifier($this->softDeleteColumn);
-            $stmt = $this->connection->pdo()->prepare("UPDATE {$table} SET {$softColumn} = 1 WHERE {$pkColumn} = :pk");
-            $stmt->execute(['pk' => $primaryKeyValue]);
+            $stmt = $this->connection->pdo()->prepare("UPDATE {$table} SET {$softColumn} = 1 WHERE {$whereSql}");
+            $stmt->execute($params);
             return;
         }
 
-        $stmt = $this->connection->pdo()->prepare("DELETE FROM {$table} WHERE {$pkColumn} = :pk");
-        $stmt->execute(['pk' => $primaryKeyValue]);
+        $stmt = $this->connection->pdo()->prepare("DELETE FROM {$table} WHERE {$whereSql}");
+        $stmt->execute($params);
     }
 
     /**

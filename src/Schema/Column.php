@@ -23,6 +23,8 @@ class Column
         public ?array $reference = null,
         /** @var string[] reglas de validacion tipo 'required', 'max:100', 'email', etc. */
         public array $rules = [],
+        /** @var array<int, array{value: mixed, label: string}> opciones estaticas para dropdown/enum/multiselect (autodetectadas para ENUM de MySQL, o definidas via override) */
+        public array $options = [],
     ) {
         if ($this->label === '') {
             $this->label = ucwords(str_replace(['_', '-'], ' ', $name));
@@ -46,7 +48,7 @@ class Column
             $type === 'date' => 'date',
             str_contains($type, 'time') => 'time',
             str_contains($type, 'email') => 'email',
-            default => 'text',
+            default => FieldType::STRING,
         };
     }
 }
