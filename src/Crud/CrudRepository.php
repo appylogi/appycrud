@@ -22,7 +22,7 @@ class CrudRepository
     ) {
     }
 
-    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC'): array
+    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = []): array
     {
         $page = max(1, $page);
         $offset = ($page - 1) * $perPage;
@@ -34,16 +34,21 @@ class CrudRepository
             $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($orderBy) . ' ' . $dir;
         }
 
-        $whereSql = $this->excludeSoftDeletedSql();
+        [$whereSql, $params] = $this->buildWhereClause($filters);
 
         $sql = "SELECT * FROM {$table} {$whereSql} {$orderSql} LIMIT :limit OFFSET :offset";
         $stmt = $this->connection->pdo()->prepare($sql);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
         $stmt->bindValue(':limit', $perPage, \PDO::PARAM_INT);
         $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll();
 
-        $total = (int) $this->connection->pdo()->query("SELECT COUNT(*) FROM {$table} {$whereSql}")->fetchColumn();
+        $countStmt = $this->connection->pdo()->prepare("SELECT COUNT(*) FROM {$table} {$whereSql}");
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
 
         return [
             'rows' => $rows,
@@ -52,6 +57,140 @@ class CrudRepository
             'perPage' => $perPage,
             'lastPage' => (int) max(1, ceil($total / $perPage)),
         ];
+    }
+
+    /**
+     * Construye WHERE combinando el filtro de borrado logico (si aplica) con
+     * los filtros por columna recibidos ($filters: columna => valor).
+     * Columnas con reference/checkbox usan igualdad exacta; el resto, LIKE.
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function buildWhereClause(array $filters): array
+    {
+        $conditions = [];
+        $params = [];
+
+        if ($this->softDeleteColumn !== null) {
+            $softColumn = $this->connection->quoteIdentifier($this->softDeleteColumn);
+            $conditions[] = "({$softColumn} = 0 OR {$softColumn} IS NULL)";
+        }
+
+        foreach ($filters as $columnName => $value) {
+            if ($value === '' || $value === null) {
+                continue;
+            }
+
+            $column = $this->schema->column($columnName);
+
+            if ($column === null) {
+                continue;
+            }
+
+            $quotedColumn = $this->connection->quoteIdentifier($columnName);
+            $paramKey = ':filter_' . $columnName;
+
+            if ($column->reference !== null || $column->inputType === 'checkbox') {
+                $conditions[] = "{$quotedColumn} = {$paramKey}";
+                $params[$paramKey] = $value;
+            } else {
+                $conditions[] = "{$quotedColumn} LIKE {$paramKey}";
+                $params[$paramKey] = '%' . $value . '%';
+            }
+        }
+
+        $sql = $conditions === [] ? '' : 'WHERE ' . implode(' AND ', $conditions);
+
+        return [$sql, $params];
+    }
+
+    /**
+     * Exporta las filas (respetando los filtros activos) a CSV, escribiendo
+     * por bloques al stream $output en vez de acumular todo en memoria.
+     */
+    public function exportCsv($output, array $filters = [], int $chunkSize = 1000): void
+    {
+        $table = $this->connection->quoteIdentifier($this->schema->table);
+        [$whereSql, $params] = $this->buildWhereClause($filters);
+        $columns = $this->schema->visibleColumns();
+
+        $referenceLabels = [];
+        foreach ($columns as $column) {
+            if ($column->reference !== null) {
+                foreach ($this->referenceOptions($column) as $option) {
+                    $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
+                }
+            }
+        }
+
+        fputcsv($output, array_map(fn (Column $c) => $c->label, $columns));
+
+        $offset = 0;
+
+        while (true) {
+            $sql = "SELECT * FROM {$table} {$whereSql} LIMIT :limit OFFSET :offset";
+            $stmt = $this->connection->pdo()->prepare($sql);
+            foreach ($params as $key => $value) {
+                $stmt->bindValue($key, $value);
+            }
+            $stmt->bindValue(':limit', $chunkSize, \PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll();
+
+            if ($rows === []) {
+                break;
+            }
+
+            foreach ($rows as $row) {
+                fputcsv($output, array_map(function (Column $c) use ($row, $referenceLabels) {
+                    $rawValue = (string) ($row[$c->name] ?? '');
+
+                    return $c->reference !== null ? ($referenceLabels[$c->name][$rawValue] ?? $rawValue) : $rawValue;
+                }, $columns));
+            }
+
+            $offset += $chunkSize;
+
+            if (count($rows) < $chunkSize) {
+                break;
+            }
+        }
+    }
+
+    public function bulkDelete(array $primaryKeyValues): void
+    {
+        foreach ($primaryKeyValues as $value) {
+            $this->delete($value);
+        }
+    }
+
+    /**
+     * Copia los datos de un registro para prellenar un formulario de creacion
+     * (nunca inserta por si solo). $excludeColumns permite vaciar columnas
+     * unicas (codigos, emails) para que el usuario las complete a mano.
+     */
+    public function cloneData(mixed $primaryKeyValue, array $excludeColumns = [], ?string $suffixColumn = null, string $suffix = ''): ?array
+    {
+        $row = $this->find($primaryKeyValue);
+
+        if ($row === null) {
+            return null;
+        }
+
+        $pk = $this->schema->primaryKey();
+        if ($pk !== null) {
+            unset($row[$pk->name]);
+        }
+
+        foreach ($excludeColumns as $columnName) {
+            unset($row[$columnName]);
+        }
+
+        if ($suffixColumn !== null && isset($row[$suffixColumn])) {
+            $row[$suffixColumn] .= $suffix;
+        }
+
+        return $row;
     }
 
     public function find(mixed $primaryKeyValue): ?array
@@ -127,17 +266,6 @@ class CrudRepository
 
         $stmt = $this->connection->pdo()->prepare("DELETE FROM {$table} WHERE {$pkColumn} = :pk");
         $stmt->execute(['pk' => $primaryKeyValue]);
-    }
-
-    private function excludeSoftDeletedSql(): string
-    {
-        if ($this->softDeleteColumn === null) {
-            return '';
-        }
-
-        $column = $this->connection->quoteIdentifier($this->softDeleteColumn);
-
-        return "WHERE {$column} = 0 OR {$column} IS NULL";
     }
 
     /**

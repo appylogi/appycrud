@@ -26,9 +26,11 @@ if ($isNew) {
     )');
     $pdo->exec("INSERT INTO categorias (nombre) VALUES ('Trabajo'), ('Personal'), ('Urgente')");
 
+    // 'titulo' es VARCHAR (campo corto); 'descripcion' es TEXT (la libreria
+    // detecta TEXT/LONGTEXT como contenido largo y lo renderiza como textarea).
     $pdo->exec('CREATE TABLE tareas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titulo TEXT NOT NULL,
+        titulo VARCHAR(150) NOT NULL,
         descripcion TEXT,
         categoria_id INTEGER REFERENCES categorias(id),
         completada INTEGER NOT NULL DEFAULT 0,
@@ -53,7 +55,19 @@ $locale = $_GET['lang'] ?? 'es';
 
 // deleteMode acepta: DeleteMode::CONFIRM (default), DeleteMode::DIRECT o DeleteMode::SOFT
 // (SOFT requiere 'softDeleteColumn' con el nombre de una columna existente en la tabla).
-$options = ['deleteMode' => \Appylogi\AppyCrud\Crud\DeleteMode::CONFIRM];
+// export/bulkDelete/filters/view/print/clone son booleanos, todos true por default;
+// se muestran aqui solo para dejar explicito que se pueden desactivar individualmente.
+$options = [
+    'deleteMode' => \Appylogi\AppyCrud\Crud\DeleteMode::CONFIRM,
+    'export' => true,
+    'bulkDelete' => true,
+    'filters' => true,
+    'view' => true,
+    'print' => true,
+    'clone' => true,
+    'cloneSuffixColumn' => 'titulo',
+    'cloneSuffix' => ' (copia)',
+];
 
 $crud = new AppyCrud($connection, 'tareas', $config, $locale, $options);
 
