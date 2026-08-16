@@ -41,7 +41,7 @@ class TailwindRenderer
             $pkValue = $pk !== null ? $row[$pk->name] : '';
             $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
             $deleteConfirm = $deleteMode === DeleteMode::CONFIRM
-                ? ' onsubmit="return confirm(' . $this->jsString($t->t('confirm.delete')) . ');"'
+                ? ' onsubmit="return confirm(' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
                 : '';
 
             $cells .= '<td class="px-4 py-2 text-right text-sm space-x-2">'
