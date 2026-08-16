@@ -1,0 +1,23 @@
+{
+    "name": "appylogi/appycrud",
+    "description": "Generador de CRUD generico en PHP vanilla, agnostico de framework, con soporte multi-motor via PDO.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["crud", "php", "vanilla", "tailwind", "generator", "admin"],
+    "authors": [
+        {
+            "name": "Appylogi",
+            "homepage": "https://appylogi.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "ext-pdo": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Appylogi\\AppyCrud\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}
