@@ -1,0 +1,6 @@
+/examples export-ignore
+/docs/desarrollo.md export-ignore
+/tailwind.config.js export-ignore
+/assets/css/appycrud.src.css export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
