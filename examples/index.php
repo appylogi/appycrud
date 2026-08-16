@@ -50,7 +50,7 @@ $html = $crud->handle($baseUrl, $_GET, $_POST);
 <head>
     <meta charset="UTF-8">
     <title>AppyCrud - Demo</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/css/appycrud.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center">
