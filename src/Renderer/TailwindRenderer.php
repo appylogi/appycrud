@@ -11,8 +11,8 @@ use Appylogi\AppyCrud\Schema\TableSchema;
  * Genera el HTML de listado/formulario/vista con clases Tailwind.
  * No depende de ningun framework de JS: crear/editar/ver/clonar/confirmar
  * abren en <dialog> nativos cargados por fetch, y el envio de formularios
- * tambien va por fetch. Todo el JS vive en un solo bloque, generado una
- * sola vez por listado.
+ * tambien va por fetch. Todo el JS y CSS de efectos vive en un solo bloque,
+ * generado una sola vez por listado.
  */
 class TailwindRenderer
 {
@@ -22,7 +22,7 @@ class TailwindRenderer
 
     /**
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones (para resolver el label de las FK en el listado)
-     * @param array<string, mixed> $features ver AppyCrud::$features (export/bulkDelete/filters/view/print/clone/...)
+     * @param array<string, mixed> $features ver AppyCrud::$features (export/bulkDelete/filters/search/view/print/clone/...)
      * @param array<string, string> $activeFilters columna => valor de filtro actualmente aplicado
      */
     public function renderList(
@@ -33,6 +33,9 @@ class TailwindRenderer
         array $referenceOptions = [],
         array $features = [],
         array $activeFilters = [],
+        string $search = '',
+        string $orderBy = '',
+        string $orderDir = 'ASC',
     ): string {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
@@ -43,6 +46,7 @@ class TailwindRenderer
         $cloneEnabled = $features['clone'] ?? true;
         $exportEnabled = $features['export'] ?? true;
         $filtersEnabled = $features['filters'] ?? true;
+        $searchEnabled = $features['search'] ?? true;
 
         $referenceLabels = [];
         foreach ($referenceOptions as $columnName => $options) {
@@ -51,12 +55,13 @@ class TailwindRenderer
             }
         }
 
-        $headers = $bulkDeleteEnabled
-            ? '<th class="px-4 py-2 text-left print:hidden"><input type="checkbox" onclick="appycrudToggleAll(this)" aria-label="' . $this->e($t->t('list.select_all')) . '"></th>'
+        $bulkHeaderCell = $bulkDeleteEnabled
+            ? '<th class="px-4 py-2 text-left print:hidden">' . $this->renderBulkDeleteControl($schema, $baseUrl, $deleteMode, $activeFilters, $search) . '</th>'
             : '';
 
+        $headers = $bulkHeaderCell;
         foreach ($columns as $column) {
-            $headers .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $this->e($column->label) . '</th>';
+            $headers .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $this->renderSortLink($column, $baseUrl, $activeFilters, $search, $orderBy, $orderDir) . '</th>';
         }
         $headers .= '<th class="px-4 py-2 text-right text-xs font-semibold uppercase text-gray-600 print:hidden">' . $this->e($t->t('list.actions')) . '</th>';
 
@@ -65,7 +70,7 @@ class TailwindRenderer
             $pkValue = $pk !== null ? $row[$pk->name] : '';
 
             $cells = $bulkDeleteEnabled
-                ? '<td class="px-4 py-2 print:hidden"><input type="checkbox" class="appycrud-row-check" value="' . $this->e((string) $pkValue) . '"></td>'
+                ? '<td class="px-4 py-2 print:hidden"><input type="checkbox" class="appycrud-row-check" onchange="appycrudUpdateBulkUI()" value="' . $this->e((string) $pkValue) . '"></td>'
                 : '';
 
             foreach ($columns as $column) {
@@ -77,29 +82,7 @@ class TailwindRenderer
                 $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $this->e($displayValue) . '</td>';
             }
 
-            $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
-            $viewUrl = $this->e($baseUrl) . '?action=view&id=' . $this->e((string) $pkValue) . '&ajax=1';
-            $cloneUrl = $this->e($baseUrl) . '?action=clone&id=' . $this->e((string) $pkValue) . '&ajax=1';
-
-            $deleteSubmit = $deleteMode === DeleteMode::CONFIRM
-                ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
-                : '';
-
-            $rowActions = $viewEnabled
-                ? '<button type="button" onclick="appycrudOpenModal(\'' . $viewUrl . '\')" class="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900">' . $this->icon('eye') . '<span>' . $this->e($t->t('list.view')) . '</span></button>'
-                : '';
-
-            $rowActions .= '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
-
-            if ($cloneEnabled) {
-                $rowActions .= '<button type="button" onclick="appycrudOpenModal(\'' . $cloneUrl . '\')" class="inline-flex items-center gap-1 text-emerald-600 hover:text-emerald-800">' . $this->icon('copy') . '<span>' . $this->e($t->t('list.clone')) . '</span></button>';
-            }
-
-            $rowActions .= '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '" class="inline"' . $deleteSubmit . '>'
-                . '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>'
-                . '</form>';
-
-            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden"><span class="inline-flex items-center gap-3">' . $rowActions . '</span></td>';
+            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t) . '</td>';
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
         }
@@ -111,32 +94,26 @@ class TailwindRenderer
 
         $pageInfo = $t->t('list.page_of', ['page' => $pagination['page'], 'lastPage' => $pagination['lastPage']]);
         $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
-        $exportUrl = $this->e($baseUrl) . '?action=export' . $this->filterQueryString($activeFilters);
         $modal = $this->renderModalShell();
-        $filterRow = $filtersEnabled ? $this->renderFilterRow($schema, $baseUrl, $activeFilters) : '';
+        $searchAndFilters = ($filtersEnabled || $searchEnabled)
+            ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled)
+            : '';
 
         $toolbar = '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>';
 
         if ($exportEnabled) {
-            $toolbar .= '<a href="' . $exportUrl . '" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('download') . '<span>' . $this->e($t->t('list.export')) . '</span></a>';
+            $toolbar .= $this->renderExportMenu($baseUrl, $activeFilters, $search);
         }
 
         $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
 
-        if ($bulkDeleteEnabled) {
-            $bulkMessage = $this->e($this->jsString($t->t('list.bulk_delete_confirm', ['count' => '__COUNT__'])));
-            $bulkRequireConfirm = $deleteMode === DeleteMode::CONFIRM ? 'true' : 'false';
-            $bulkDeleteUrl = $this->e($baseUrl) . '?action=bulkDelete';
-            $toolbar .= '<button type="button" onclick="appycrudBulkDelete(\'' . $bulkDeleteUrl . '\', ' . $bulkMessage . ', ' . $bulkRequireConfirm . ')" class="inline-flex items-center gap-2 bg-white border border-red-300 text-red-700 px-4 py-2 rounded-md text-sm hover:bg-red-50">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.bulk_delete')) . '</span></button>';
-        }
-
         return <<<HTML
-        <div class="max-w-6xl mx-auto p-6">
+        <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
             <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
                 <div class="flex items-center gap-2 print:hidden">{$toolbar}</div>
             </div>
-            {$filterRow}
+            {$searchAndFilters}
             <div class="overflow-x-auto bg-white rounded-lg shadow">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50"><tr>{$headers}</tr></thead>
@@ -149,54 +126,173 @@ class TailwindRenderer
         HTML;
     }
 
-    /** @param array<string, string> $activeFilters */
-    private function renderFilterRow(TableSchema $schema, string $baseUrl, array $activeFilters): string
+    /**
+     * Checkbox "seleccionar todos" + boton de borrado masivo, oculto hasta
+     * que haya alguna fila seleccionada (lo muestra/oculta appycrudUpdateBulkUI).
+     */
+    private function renderBulkDeleteControl(TableSchema $schema, string $baseUrl, string $deleteMode, array $activeFilters, string $search): string
+    {
+        $t = $this->translator;
+        $bulkMessage = $this->e($this->jsString($t->t('list.bulk_delete_confirm', ['count' => '__COUNT__'])));
+        $bulkRequireConfirm = $deleteMode === DeleteMode::CONFIRM ? 'true' : 'false';
+        $bulkDeleteUrl = $this->e($baseUrl) . '?action=bulkDelete';
+
+        return '<div class="flex items-center gap-2">'
+            . '<input type="checkbox" onclick="appycrudToggleAll(this)" aria-label="' . $this->e($t->t('list.select_all')) . '">'
+            . '<button type="button" id="appycrud-bulk-delete-btn" onclick="appycrudBulkDelete(\'' . $bulkDeleteUrl . '\', ' . $bulkMessage . ', ' . $bulkRequireConfirm . ')" class="hidden items-center gap-1 text-red-600 hover:text-red-800 text-xs font-medium">'
+            . $this->icon('trash') . '<span>' . $this->e($t->t('list.bulk_delete')) . '</span><span class="appycrud-bulk-count"></span>'
+            . '</button>'
+            . '</div>';
+    }
+
+    private function renderSortLink(Column $column, string $baseUrl, array $activeFilters, string $search, string $orderBy, string $orderDir): string
+    {
+        $isActive = $orderBy === $column->name;
+        $nextDir = ($isActive && strtoupper($orderDir) === 'ASC') ? 'DESC' : 'ASC';
+        $query = $this->buildListQuery($activeFilters, $search, $column->name, $nextDir);
+        $arrow = $isActive ? ($nextDir === 'DESC' ? ' ↑' : ' ↓') : '';
+
+        return '<a href="' . $this->e($baseUrl) . '?' . $query . '" class="hover:text-gray-900' . ($isActive ? ' text-gray-900' : '') . '">' . $this->e($column->label) . $arrow . '</a>';
+    }
+
+    /** @return string querystring (sin "?") con filtros + busqueda + orden */
+    private function buildListQuery(array $activeFilters, string $search, string $orderBy, string $orderDir): string
+    {
+        $params = [];
+
+        foreach ($activeFilters as $columnName => $value) {
+            if ($value !== '' && $value !== null) {
+                $params['filter'][$columnName] = $value;
+            }
+        }
+
+        if ($search !== '') {
+            $params['q'] = $search;
+        }
+
+        if ($orderBy !== '') {
+            $params['orderBy'] = $orderBy;
+            $params['orderDir'] = $orderDir;
+        }
+
+        return http_build_query($params);
+    }
+
+    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t): string
+    {
+        $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
+        $viewUrl = $this->e($baseUrl) . '?action=view&id=' . $this->e((string) $pkValue) . '&ajax=1';
+        $cloneUrl = $this->e($baseUrl) . '?action=clone&id=' . $this->e((string) $pkValue) . '&ajax=1';
+
+        $deleteSubmit = $deleteMode === DeleteMode::CONFIRM
+            ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
+            : '';
+        $deleteForm = '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '"' . $deleteSubmit . '>%s</form>';
+
+        $editButton = '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="%s text-blue-600 hover:text-blue-800%s">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
+
+        $extraCount = ($viewEnabled ? 1 : 0) + ($cloneEnabled ? 1 : 0) + 1; // +1 por Eliminar, siempre presente
+
+        // Con pocas acciones se muestran todas en linea; con varias, las
+        // secundarias se agrupan en un menu para no saturar la fila.
+        if ($extraCount <= 1) {
+            $inline = sprintf($editButton, 'inline-flex items-center gap-1', '');
+            $inline .= sprintf($deleteForm, '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+
+            return '<span class="inline-flex items-center gap-3">' . $inline . '</span>';
+        }
+
+        $menuItems = '';
+        if ($viewEnabled) {
+            $menuItems .= '<button type="button" onclick="appycrudOpenModal(\'' . $viewUrl . '\')" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left">' . $this->icon('eye') . '<span>' . $this->e($t->t('list.view')) . '</span></button>';
+        }
+        if ($cloneEnabled) {
+            $menuItems .= '<button type="button" onclick="appycrudOpenModal(\'' . $cloneUrl . '\')" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50 text-left">' . $this->icon('copy') . '<span>' . $this->e($t->t('list.clone')) . '</span></button>';
+        }
+        $menuItems .= sprintf($deleteForm, '<button type="submit" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+
+        return '<span class="inline-flex items-center gap-3">'
+            . sprintf($editButton, 'inline-flex items-center gap-1', '')
+            . '<span class="relative inline-block appycrud-menu-wrap">'
+            . '<button type="button" onclick="appycrudToggleMenu(this)" aria-label="' . $this->e($t->t('list.more_actions')) . '" class="text-gray-500 hover:text-gray-800 p-1 rounded hover:bg-gray-100">' . $this->icon('dots') . '</button>'
+            . '<div class="hidden appycrud-menu absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-20 overflow-hidden">' . $menuItems . '</div>'
+            . '</span>'
+            . '</span>';
+    }
+
+    private function renderExportMenu(string $baseUrl, array $activeFilters, string $search): string
+    {
+        $t = $this->translator;
+        $query = $this->buildListQuery($activeFilters, $search, '', '');
+        $sep = $query === '' ? '?' : '?' . $query . '&';
+
+        $formats = [
+            'csv' => $t->t('list.export_csv'),
+            'xls' => $t->t('list.export_xls'),
+            'md' => $t->t('list.export_md'),
+        ];
+
+        $items = '';
+        foreach ($formats as $format => $label) {
+            $url = $this->e($baseUrl) . $sep . 'action=export&format=' . $format;
+            $items .= '<a href="' . $url . '" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">' . $this->e($label) . '</a>';
+        }
+
+        return '<span class="relative inline-block appycrud-menu-wrap">'
+            . '<button type="button" onclick="appycrudToggleMenu(this)" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('download') . '<span>' . $this->e($t->t('list.export')) . '</span></button>'
+            . '<div class="hidden appycrud-menu absolute left-0 mt-1 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-20 overflow-hidden">' . $items . '</div>'
+            . '</span>';
+    }
+
+    /**
+     * Una sola fila: busqueda global + un input por columna, todo en el mismo
+     * <form method="get"> para poder combinarse y para preservar el orden
+     * actual (orderBy/orderDir como hidden).
+     */
+    private function renderFilterRow(TableSchema $schema, string $baseUrl, array $activeFilters, string $search, string $orderBy, string $orderDir, bool $filtersEnabled, bool $searchEnabled): string
     {
         $t = $this->translator;
         $fields = '';
 
-        foreach ($schema->visibleColumns() as $column) {
-            $current = $activeFilters[$column->name] ?? '';
+        if ($searchEnabled) {
+            $fields .= '<input type="text" name="q" value="' . $this->e($search) . '" placeholder="' . $this->e($t->t('list.search_placeholder')) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[10rem]">';
+        }
 
-            if ($column->reference !== null) {
-                $fields .= '<input type="text" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" placeholder="' . $this->e($column->label) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">';
-            } elseif ($column->inputType === 'checkbox') {
-                $fields .= '<select name="filter[' . $this->e($column->name) . ']" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white">'
-                    . '<option value="">' . $this->e($column->label) . '</option>'
-                    . '<option value="1"' . ($current === '1' ? ' selected' : '') . '>Si</option>'
-                    . '<option value="0"' . ($current === '0' ? ' selected' : '') . '>No</option>'
-                    . '</select>';
-            } else {
-                $fields .= '<input type="text" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" placeholder="' . $this->e($column->label) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">';
+        if ($filtersEnabled) {
+            foreach ($schema->visibleColumns() as $column) {
+                $current = $activeFilters[$column->name] ?? '';
+
+                if ($column->inputType === 'checkbox') {
+                    $fields .= '<select name="filter[' . $this->e($column->name) . ']" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white">'
+                        . '<option value="">' . $this->e($column->label) . '</option>'
+                        . '<option value="1"' . ($current === '1' ? ' selected' : '') . '>Si</option>'
+                        . '<option value="0"' . ($current === '0' ? ' selected' : '') . '>No</option>'
+                        . '</select>';
+                } else {
+                    $fields .= '<input type="text" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" placeholder="' . $this->e($column->label) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">';
+                }
             }
         }
+
+        $orderHidden = $orderBy !== ''
+            ? '<input type="hidden" name="orderBy" value="' . $this->e($orderBy) . '"><input type="hidden" name="orderDir" value="' . $this->e($orderDir) . '">'
+            : '';
 
         return <<<HTML
         <form method="get" action="{$this->e($baseUrl)}" class="flex flex-wrap items-center gap-2 mb-4 print:hidden">
             {$fields}
+            {$orderHidden}
             <button type="submit" class="bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->e($t->t('list.filter_apply'))}</button>
             <a href="{$this->e($baseUrl)}" class="text-sm text-gray-500 hover:underline">{$this->e($t->t('list.filter_clear'))}</a>
         </form>
         HTML;
     }
 
-    private function filterQueryString(array $activeFilters): string
-    {
-        $query = '';
-        foreach ($activeFilters as $columnName => $value) {
-            if ($value === '' || $value === null) {
-                continue;
-            }
-            $query .= '&filter%5B' . rawurlencode($columnName) . '%5D=' . rawurlencode((string) $value);
-        }
-
-        return $query;
-    }
-
     /**
-     * Dialogs nativos (formulario + confirmacion) y JS vanilla, se generan una
-     * sola vez por pagina de listado. renderForm()/renderView() asumen que
-     * este shell ya esta presente (usan sus funciones globales).
+     * Dialogs nativos (formulario + confirmacion), estilos de efectos y JS
+     * vanilla; se generan una sola vez por pagina de listado. renderForm()/
+     * renderView() asumen que este shell ya esta presente (usan sus funciones
+     * globales).
      */
     private function renderModalShell(): string
     {
@@ -204,6 +300,14 @@ class TailwindRenderer
         $deleteLabel = $this->e($this->translator->t('list.delete'));
 
         return <<<HTML
+        <style>
+        @keyframes appycrud-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .appycrud-fade-in { animation: appycrud-fade-in .25s ease-out; }
+        dialog[open] { animation: appycrud-pop .18s ease-out; }
+        dialog[open]::backdrop { animation: appycrud-backdrop-fade .18s ease-out; }
+        @keyframes appycrud-pop { from { opacity: 0; transform: scale(.95) translateY(-8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        @keyframes appycrud-backdrop-fade { from { opacity: 0; } to { opacity: 1; } }
+        </style>
         <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-2xl backdrop:bg-black/50">
             <div id="appycrud-dialog-content"></div>
         </dialog>
@@ -248,7 +352,36 @@ class TailwindRenderer
             document.querySelectorAll('.appycrud-row-check').forEach(function (c) {
                 c.checked = checkbox.checked;
             });
+            appycrudUpdateBulkUI();
         }
+
+        function appycrudUpdateBulkUI() {
+            var btn = document.getElementById('appycrud-bulk-delete-btn');
+            if (!btn) { return; }
+            var checked = document.querySelectorAll('.appycrud-row-check:checked').length;
+            if (checked > 0) {
+                btn.classList.remove('hidden');
+                btn.classList.add('flex');
+                btn.querySelector('.appycrud-bulk-count').textContent = ' (' + checked + ')';
+            } else {
+                btn.classList.add('hidden');
+                btn.classList.remove('flex');
+            }
+        }
+
+        function appycrudToggleMenu(button) {
+            var menu = button.nextElementSibling;
+            document.querySelectorAll('.appycrud-menu').forEach(function (m) {
+                if (m !== menu) { m.classList.add('hidden'); }
+            });
+            menu.classList.toggle('hidden');
+        }
+
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('.appycrud-menu-wrap')) {
+                document.querySelectorAll('.appycrud-menu').forEach(function (m) { m.classList.add('hidden'); });
+            }
+        });
 
         var appycrudPendingAction = null;
 
@@ -489,6 +622,7 @@ class TailwindRenderer
             'copy' => '<rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />',
             'download' => '<path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" />',
             'printer' => '<path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1" /><path d="M6 17v4h12v-4" />',
+            'dots' => '<circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />',
         ];
 
         $path = $paths[$name] ?? '';

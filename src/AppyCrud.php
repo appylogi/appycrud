@@ -24,6 +24,7 @@ use InvalidArgumentException;
  *   - 'export' => bool (default true)
  *   - 'bulkDelete' => bool (default true)
  *   - 'filters' => bool (default true)
+ *   - 'search' => bool (default true) busqueda global sobre columnas de texto
  *   - 'view' => bool (default true)
  *   - 'print' => bool (default true)
  *   - 'clone' => bool (default true)
@@ -67,6 +68,7 @@ class AppyCrud
             'export' => $options['export'] ?? true,
             'bulkDelete' => $options['bulkDelete'] ?? true,
             'filters' => $options['filters'] ?? true,
+            'search' => $options['search'] ?? true,
             'view' => $options['view'] ?? true,
             'print' => $options['print'] ?? true,
             'clone' => $options['clone'] ?? true,
@@ -133,9 +135,13 @@ class AppyCrud
     {
         $page = max(1, (int) ($get['page'] ?? 1));
         $filters = $this->features['filters'] ? ($get['filter'] ?? []) : [];
-        $pagination = $this->repository->paginate($page, 20, '', 'ASC', $filters);
+        $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
+        $orderBy = (string) ($get['orderBy'] ?? '');
+        $orderDir = (string) ($get['orderDir'] ?? 'ASC');
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters);
+        $pagination = $this->repository->paginate($page, 20, $orderBy, $orderDir, $filters, $search);
+
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir);
     }
 
     private function handleStore(array $post, string $baseUrl): string
@@ -186,13 +192,29 @@ class AppyCrud
     private function handleExport(array $get): never
     {
         $filters = $this->features['filters'] ? ($get['filter'] ?? []) : [];
+        $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
+        $format = $get['format'] ?? 'csv';
 
-        header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="' . $this->table . '.csv"');
+        [$mime, $extension] = match ($format) {
+            'xls' => ['application/vnd.ms-excel', 'xls'],
+            'md' => ['text/markdown; charset=UTF-8', 'md'],
+            default => ['text/csv; charset=UTF-8', 'csv'],
+        };
+
+        header("Content-Type: {$mime}");
+        header('Content-Disposition: attachment; filename="' . $this->table . '.' . $extension . '"');
 
         $output = fopen('php://output', 'w');
-        fwrite($output, "\xEF\xBB\xBF");
-        $this->repository->exportCsv($output, $filters);
+
+        match ($format) {
+            'xls' => $this->repository->exportXls($output, $filters, 1000, $search),
+            'md' => $this->repository->exportMarkdown($output, $filters, 1000, $search),
+            default => (function () use ($output, $filters, $search) {
+                fwrite($output, "\xEF\xBB\xBF");
+                $this->repository->exportCsv($output, $filters, 1000, $search);
+            })(),
+        };
+
         fclose($output);
         exit;
     }

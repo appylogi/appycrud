@@ -22,7 +22,7 @@ class CrudRepository
     ) {
     }
 
-    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = []): array
+    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = [], string $search = ''): array
     {
         $page = max(1, $page);
         $offset = ($page - 1) * $perPage;
@@ -34,7 +34,7 @@ class CrudRepository
             $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($orderBy) . ' ' . $dir;
         }
 
-        [$whereSql, $params] = $this->buildWhereClause($filters);
+        [$whereSql, $params] = $this->buildWhereClause($filters, $search);
 
         $sql = "SELECT * FROM {$table} {$whereSql} {$orderSql} LIMIT :limit OFFSET :offset";
         $stmt = $this->connection->pdo()->prepare($sql);
@@ -60,12 +60,14 @@ class CrudRepository
     }
 
     /**
-     * Construye WHERE combinando el filtro de borrado logico (si aplica) con
-     * los filtros por columna recibidos ($filters: columna => valor).
-     * Columnas con reference/checkbox usan igualdad exacta; el resto, LIKE.
+     * Construye WHERE combinando el filtro de borrado logico (si aplica), los
+     * filtros por columna ($filters: columna => valor, AND entre si) y una
+     * busqueda global ($search, OR entre las columnas de texto/numero visibles).
+     * Columnas con reference/checkbox usan igualdad exacta en los filtros; el
+     * resto, LIKE.
      * @return array{0: string, 1: array<string, mixed>}
      */
-    private function buildWhereClause(array $filters): array
+    private function buildWhereClause(array $filters, string $search = ''): array
     {
         $conditions = [];
         $params = [];
@@ -98,31 +100,90 @@ class CrudRepository
             }
         }
 
+        if ($search !== '') {
+            $searchConditions = [];
+            foreach ($this->schema->visibleColumns() as $column) {
+                if ($column->reference !== null || $column->inputType === 'checkbox') {
+                    continue;
+                }
+
+                $quotedColumn = $this->connection->quoteIdentifier($column->name);
+                $paramKey = ':search_' . $column->name;
+                $searchConditions[] = "{$quotedColumn} LIKE {$paramKey}";
+                $params[$paramKey] = '%' . $search . '%';
+            }
+
+            if ($searchConditions !== []) {
+                $conditions[] = '(' . implode(' OR ', $searchConditions) . ')';
+            }
+        }
+
         $sql = $conditions === [] ? '' : 'WHERE ' . implode(' AND ', $conditions);
 
         return [$sql, $params];
     }
 
     /**
-     * Exporta las filas (respetando los filtros activos) a CSV, escribiendo
-     * por bloques al stream $output en vez de acumular todo en memoria.
+     * Exporta las filas (respetando filtros y busqueda activos) a CSV,
+     * escribiendo por bloques al stream $output en vez de acumular todo en memoria.
      */
-    public function exportCsv($output, array $filters = [], int $chunkSize = 1000): void
+    public function exportCsv($output, array $filters = [], int $chunkSize = 1000, string $search = ''): void
     {
-        $table = $this->connection->quoteIdentifier($this->schema->table);
-        [$whereSql, $params] = $this->buildWhereClause($filters);
+        $columns = $this->schema->visibleColumns();
+        fputcsv($output, array_map(fn (Column $c) => $c->label, $columns));
+
+        foreach ($this->exportRows($filters, $search, $chunkSize) as $displayRow) {
+            fputcsv($output, array_values($displayRow));
+        }
+    }
+
+    /**
+     * Exporta a una tabla HTML con mimetype de Excel (application/vnd.ms-excel).
+     * Excel abre HTML valido guardado con extension .xls sin depender de
+     * ninguna libreria externa (PhpSpreadsheet, etc.).
+     */
+    public function exportXls($output, array $filters = [], int $chunkSize = 1000, string $search = ''): void
+    {
         $columns = $this->schema->visibleColumns();
 
-        $referenceLabels = [];
-        foreach ($columns as $column) {
-            if ($column->reference !== null) {
-                foreach ($this->referenceOptions($column) as $option) {
-                    $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
-                }
-            }
+        fwrite($output, '<html><head><meta charset="UTF-8"></head><body><table border="1">');
+        fwrite($output, '<tr>' . implode('', array_map(fn (Column $c) => '<th>' . htmlspecialchars($c->label, ENT_QUOTES) . '</th>', $columns)) . '</tr>');
+
+        foreach ($this->exportRows($filters, $search, $chunkSize) as $displayRow) {
+            fwrite($output, '<tr>' . implode('', array_map(fn ($v) => '<td>' . htmlspecialchars((string) $v, ENT_QUOTES) . '</td>', $displayRow)) . '</tr>');
         }
 
-        fputcsv($output, array_map(fn (Column $c) => $c->label, $columns));
+        fwrite($output, '</table></body></html>');
+    }
+
+    /**
+     * Exporta a una tabla en formato Markdown.
+     */
+    public function exportMarkdown($output, array $filters = [], int $chunkSize = 1000, string $search = ''): void
+    {
+        $columns = $this->schema->visibleColumns();
+        $escape = fn ($v) => str_replace('|', '\\|', (string) $v);
+
+        fwrite($output, '| ' . implode(' | ', array_map(fn (Column $c) => $escape($c->label), $columns)) . " |\n");
+        fwrite($output, '| ' . implode(' | ', array_fill(0, count($columns), '---')) . " |\n");
+
+        foreach ($this->exportRows($filters, $search, $chunkSize) as $displayRow) {
+            fwrite($output, '| ' . implode(' | ', array_map($escape, $displayRow)) . " |\n");
+        }
+    }
+
+    /**
+     * Itera las filas que aplican (filtros + busqueda), ya resueltas a su
+     * valor "para mostrar" (FK -> label), en bloques de $chunkSize sin
+     * acumular el resultado completo en memoria.
+     * @return iterable<int, array<string, mixed>>
+     */
+    private function exportRows(array $filters, string $search, int $chunkSize): iterable
+    {
+        $table = $this->connection->quoteIdentifier($this->schema->table);
+        [$whereSql, $params] = $this->buildWhereClause($filters, $search);
+        $columns = $this->schema->visibleColumns();
+        $referenceLabels = $this->buildReferenceLabels($columns);
 
         $offset = 0;
 
@@ -142,11 +203,14 @@ class CrudRepository
             }
 
             foreach ($rows as $row) {
-                fputcsv($output, array_map(function (Column $c) use ($row, $referenceLabels) {
-                    $rawValue = (string) ($row[$c->name] ?? '');
-
-                    return $c->reference !== null ? ($referenceLabels[$c->name][$rawValue] ?? $rawValue) : $rawValue;
-                }, $columns));
+                $displayRow = [];
+                foreach ($columns as $column) {
+                    $rawValue = (string) ($row[$column->name] ?? '');
+                    $displayRow[$column->name] = $column->reference !== null
+                        ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
+                        : $rawValue;
+                }
+                yield $displayRow;
             }
 
             $offset += $chunkSize;
@@ -155,6 +219,21 @@ class CrudRepository
                 break;
             }
         }
+    }
+
+    /** @param Column[] $columns @return array<string, array<string, string>> */
+    private function buildReferenceLabels(array $columns): array
+    {
+        $referenceLabels = [];
+        foreach ($columns as $column) {
+            if ($column->reference !== null) {
+                foreach ($this->referenceOptions($column) as $option) {
+                    $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
+                }
+            }
+        }
+
+        return $referenceLabels;
     }
 
     public function bulkDelete(array $primaryKeyValues): void
