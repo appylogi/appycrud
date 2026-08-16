@@ -31,6 +31,8 @@ composer require appylogi/appycrud
 ```php
 <?php
 
+session_start(); // AppyCrud lo necesita para el token CSRF (activado por default)
+
 require __DIR__ . '/vendor/autoload.php'; // o 'autoload.php' si no usas Composer
 
 use Appylogi\AppyCrud\AppyCrud;

@@ -19,3 +19,4 @@ Primera versión.
 - Animaciones de entrada en modales y listado.
 - i18n español/inglés incluido, extensible con un archivo nuevo en `lang/`.
 - Autoloader manual (`autoload.php`) para instalación sin Composer.
+- Protección CSRF activada por default (token por sesión, exigido en store/update/delete/bulkDelete); desactivable con `'csrf' => false`.

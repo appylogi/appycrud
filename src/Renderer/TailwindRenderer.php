@@ -20,6 +20,12 @@ class TailwindRenderer
     {
     }
 
+    /** Traduce una llave del idioma activo; util para mensajes generados fuera del renderer (ej. errores de CSRF en AppyCrud). */
+    public function translate(string $key, array $replace = []): string
+    {
+        return $this->translator->t($key, $replace);
+    }
+
     /**
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones (para resolver el label de las FK en el listado)
      * @param array<string, mixed> $features ver AppyCrud::$features (export/bulkDelete/filters/search/view/print/clone/...)
@@ -36,13 +42,14 @@ class TailwindRenderer
         string $search = '',
         string $orderBy = '',
         string $orderDir = 'ASC',
+        string $csrfToken = '',
     ): string {
         $t = $this->translator;
         $filtersEnabled = $features['filters'] ?? true;
         $searchEnabled = $features['search'] ?? true;
 
         $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
-        $modal = $this->renderModalShell();
+        $modal = $this->renderModalShell($csrfToken);
         $searchAndFilters = ($filtersEnabled || $searchEnabled)
             ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled)
             : '';
@@ -55,7 +62,7 @@ class TailwindRenderer
 
         $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
 
-        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir);
+        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken);
 
         return <<<HTML
         <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
@@ -86,8 +93,9 @@ class TailwindRenderer
         string $search = '',
         string $orderBy = '',
         string $orderDir = 'ASC',
+        string $csrfToken = '',
     ): string {
-        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir);
+        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken);
     }
 
     private function renderListInner(
@@ -101,6 +109,7 @@ class TailwindRenderer
         string $search,
         string $orderBy,
         string $orderDir,
+        string $csrfToken,
     ): string {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
@@ -144,7 +153,7 @@ class TailwindRenderer
                 $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $this->e($displayValue) . '</td>';
             }
 
-            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t) . '</td>';
+            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken) . '</td>';
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
         }
@@ -219,16 +228,18 @@ class TailwindRenderer
         return http_build_query($params);
     }
 
-    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t): string
+    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = ''): string
     {
         $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
         $viewUrl = $this->e($baseUrl) . '?action=view&id=' . $this->e((string) $pkValue) . '&ajax=1';
         $cloneUrl = $this->e($baseUrl) . '?action=clone&id=' . $this->e((string) $pkValue) . '&ajax=1';
 
+        $csrfField = $csrfToken !== '' ? '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">' : '';
+
         $deleteSubmit = $deleteMode === DeleteMode::CONFIRM
             ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
             : '';
-        $deleteForm = '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '"' . $deleteSubmit . '>%s</form>';
+        $deleteForm = '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '"' . $deleteSubmit . '>' . $csrfField . '%s</form>';
 
         $editButton = '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="%s text-blue-600 hover:text-blue-800%s">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
 
@@ -335,10 +346,11 @@ class TailwindRenderer
      * renderView() asumen que este shell ya esta presente (usan sus funciones
      * globales).
      */
-    private function renderModalShell(): string
+    private function renderModalShell(string $csrfToken = ''): string
     {
         $cancelLabel = $this->e($this->translator->t('form.cancel'));
         $deleteLabel = $this->e($this->translator->t('list.delete'));
+        $csrfTokenJs = $this->jsString($csrfToken);
 
         return <<<HTML
         <style>
@@ -360,6 +372,8 @@ class TailwindRenderer
             </div>
         </dialog>
         <script>
+        var appycrudCsrfToken = {$csrfTokenJs};
+
         function appycrudOpenModal(url) {
             fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (r) { return r.text(); })
@@ -508,6 +522,7 @@ class TailwindRenderer
             var run = function () {
                 var body = new FormData();
                 ids.forEach(function (id) { body.append('ids[]', id); });
+                if (appycrudCsrfToken) { body.append('csrf_token', appycrudCsrfToken); }
                 fetch(url, { method: 'POST', body: body })
                     .then(function () { window.location.reload(); });
             };
@@ -526,7 +541,7 @@ class TailwindRenderer
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones del select
      * @param array<string, string[]> $errors columna => mensajes de error
      */
-    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = []): string
+    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = ''): string
     {
         $t = $this->translator;
         $pk = $schema->primaryKey();
@@ -548,10 +563,17 @@ class TailwindRenderer
             );
         }
 
+        $csrfField = $csrfToken !== '' ? '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">' : '';
+        $generalErrorHtml = $generalError !== ''
+            ? '<div class="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">' . $this->e($generalError) . '</div>'
+            : '';
+
         return <<<HTML
         <div class="p-6">
             <h1 class="text-xl font-bold text-gray-900 mb-4">{$this->e($title)}</h1>
+            {$generalErrorHtml}
             <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="space-y-4" onsubmit="return appycrudSubmitForm(event, this)">
+                {$csrfField}
                 {$fields}
                 <div class="flex justify-end gap-3 pt-2">
                     <button type="button" onclick="appycrudCloseModal()" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$this->e($t->t('form.cancel'))}</button>

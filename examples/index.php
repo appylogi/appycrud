@@ -8,6 +8,8 @@
  * y abrir http://localhost:8000/
  */
 
+session_start(); // AppyCrud usa la sesion para el token CSRF (opciones['csrf'], default true)
+
 require __DIR__ . '/../vendor/autoload.php';
 
 use Appylogi\AppyCrud\AppyCrud;

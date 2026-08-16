@@ -2,6 +2,7 @@
 
 namespace Appylogi\AppyCrud;
 
+use Appylogi\AppyCrud\Crud\Csrf;
 use Appylogi\AppyCrud\Crud\CrudRepository;
 use Appylogi\AppyCrud\Crud\DeleteMode;
 use Appylogi\AppyCrud\Crud\Validator;
@@ -31,6 +32,10 @@ use InvalidArgumentException;
  *   - 'cloneExcludeColumns' => string[] columnas a vaciar al clonar (ej. codigos unicos)
  *   - 'cloneSuffixColumn' => columna a la que se le agrega un sufijo al clonar
  *   - 'cloneSuffix' => sufijo a usar (default ' (copia)')
+ *   - 'csrf' => bool (default true). Protege store/update/delete/bulkDelete con
+ *     un token de sesion. Requiere session_start() antes de instanciar AppyCrud
+ *     (lanza RuntimeException si no hay sesion activa); desactivalo con false
+ *     si tu aplicacion ya maneja CSRF a otro nivel.
  */
 class AppyCrud
 {
@@ -39,6 +44,8 @@ class AppyCrud
     private TailwindRenderer $renderer;
     private string $deleteMode;
     private array $features;
+    private bool $csrfEnabled;
+    private string $csrfSessionKey;
 
     public function __construct(
         private Connection $connection,
@@ -77,8 +84,21 @@ class AppyCrud
             'cloneSuffix' => $options['cloneSuffix'] ?? ' (copia)',
         ];
 
+        $this->csrfEnabled = $options['csrf'] ?? true;
+        $this->csrfSessionKey = 'appycrud_csrf_' . $table;
+
         $this->repository = new CrudRepository($connection, $this->schema, $softDeleteColumn);
         $this->renderer = new TailwindRenderer(new Translator($locale));
+    }
+
+    private function csrfToken(): string
+    {
+        return $this->csrfEnabled ? Csrf::token($this->csrfSessionKey) : '';
+    }
+
+    private function verifyCsrf(array $post): bool
+    {
+        return !$this->csrfEnabled || Csrf::verify($this->csrfSessionKey, $post['csrf_token'] ?? null);
     }
 
     public function schema(): TableSchema
@@ -101,8 +121,8 @@ class AppyCrud
         $action = $get['action'] ?? 'list';
 
         return match ($action) {
-            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions()),
-            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions()),
+            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken()),
+            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken()),
             'view' => $this->renderer->renderView($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, (string) ($get['id'] ?? ''), $this->referenceOptions()),
             'clone' => $this->renderer->renderForm(
                 $this->schema,
@@ -110,10 +130,12 @@ class AppyCrud
                 $baseUrl,
                 false,
                 $this->referenceOptions(),
+                [],
+                $this->csrfToken(),
             ),
             'store' => $this->handleStore($post, $baseUrl),
             'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl),
-            'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl),
+            'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl, $post),
             'bulkDelete' => $this->handleBulkDelete($post, $baseUrl),
             'export' => $this->handleExport($get),
             'print' => $this->handlePrint($get['id'] ?? ''),
@@ -139,7 +161,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir);
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken());
     }
 
     /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */
@@ -147,7 +169,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir);
+        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken());
     }
 
     /** @return array{0: array, 1: array<string,string>, 2: string, 3: string, 4: string} */
@@ -166,11 +188,16 @@ class AppyCrud
 
     private function handleStore(array $post, string $baseUrl): string
     {
+        if (!$this->verifyCsrf($post)) {
+            http_response_code(422);
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage());
+        }
+
         $errors = Validator::validate($this->schema, $post);
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors);
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors, $this->csrfToken());
         }
 
         $this->repository->insert($post);
@@ -179,22 +206,31 @@ class AppyCrud
 
     private function handleUpdate(mixed $id, array $post, string $baseUrl): string
     {
+        $pk = $this->schema->primaryKey();
+        $values = $pk !== null ? $post + [$pk->name => $id] : $post;
+
+        if (!$this->verifyCsrf($post)) {
+            http_response_code(422);
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage());
+        }
+
         $errors = Validator::validate($this->schema, $post);
 
         if ($errors !== []) {
             http_response_code(422);
-            $pk = $this->schema->primaryKey();
-            $values = $pk !== null ? $post + [$pk->name => $id] : $post;
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors);
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors, $this->csrfToken());
         }
 
         $this->repository->update($id, $post);
         $this->redirect($baseUrl);
     }
 
-    private function handleDelete(mixed $id, string $baseUrl): string
+    private function handleDelete(mixed $id, string $baseUrl, array $post = []): string
     {
-        $this->repository->delete($id);
+        if ($this->verifyCsrf($post)) {
+            $this->repository->delete($id);
+        }
+
         $this->redirect($baseUrl);
     }
 
@@ -202,11 +238,16 @@ class AppyCrud
     {
         $ids = $post['ids'] ?? [];
 
-        if (is_array($ids) && $ids !== []) {
+        if ($this->verifyCsrf($post) && is_array($ids) && $ids !== []) {
             $this->repository->bulkDelete($ids);
         }
 
         $this->redirect($baseUrl);
+    }
+
+    private function csrfErrorMessage(): string
+    {
+        return $this->renderer->translate('form.csrf_error');
     }
 
     private function handleExport(array $get): never

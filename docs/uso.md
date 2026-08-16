@@ -82,6 +82,7 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
     'search' => true,
     'view' => true,
     'print' => true,
+    'csrf' => true,
 ]);
 ```
 
@@ -99,6 +100,7 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `cloneExcludeColumns` | `[]` | Columnas a vaciar al clonar (típicamente códigos/emails únicos). |
 | `cloneSuffixColumn` | `null` | Columna a la que se le agrega `cloneSuffix` al clonar (ej. el título). |
 | `cloneSuffix` | `' (copia)'` | Sufijo usado con `cloneSuffixColumn`. |
+| `csrf` | `true` | Protección CSRF (ver [Seguridad](#seguridad)). Requiere `session_start()` antes de instanciar `AppyCrud`. |
 
 Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero siguen siendo consultas al servidor — no se pierden resultados en tablas con miles de filas y paginación, a diferencia de un filtro puramente en JavaScript sobre lo ya cargado en pantalla.
 
@@ -110,7 +112,7 @@ Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero sigu
 
 - **SQL**: todo el acceso a datos usa *prepared statements*; los valores de usuario nunca se concatenan en el SQL.
 - **XSS**: toda salida a HTML pasa por `htmlspecialchars`.
-- **CSRF**: AppyCrud no incluye protección CSRF propia — es agnóstico de framework y no asume ningún mecanismo de sesión/autenticación particular. Si tu aplicación expone estas rutas a usuarios autenticados, agrega tu propio token CSRF (la mayoría de frameworks ya tienen uno) validándolo antes de llamar a `$crud->handle()`.
+- **CSRF**: activado por default (`'csrf' => true`). Genera un token por sesión (`$_SESSION`) y lo exige en `store`/`update`/`delete`/`bulkDelete`; los formularios y botones de borrado ya lo incluyen automáticamente, no hay que hacer nada extra. **Requiere `session_start()`** antes de instanciar `AppyCrud` — si no hay sesión activa, lanza `RuntimeException` con un mensaje explicando qué falta. Si tu aplicación ya resuelve CSRF a otro nivel (un framework con su propio middleware, por ejemplo) y no quieres que se dupliquen tokens, desactívalo con `'csrf' => false`.
 
 ## Integrarlo con tu propio router
 

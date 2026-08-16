@@ -30,4 +30,5 @@ return [
     'view.close' => 'Cerrar',
     'view.print' => 'Imprimir',
     'confirm.delete' => 'Seguro que deseas eliminar este registro?',
+    'form.csrf_error' => 'Tu sesion o el formulario expiraron. Cierra este cuadro, vuelve a abrirlo e intenta de nuevo.',
 ];
