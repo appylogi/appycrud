@@ -9,9 +9,9 @@ use Appylogi\AppyCrud\Schema\TableSchema;
 
 /**
  * Genera el HTML de listado/formulario con clases Tailwind.
- * No depende de ningun framework de JS: crear/editar abren en un <dialog>
- * nativo cargado por fetch, y el envio del formulario tambien va por fetch.
- * Todo el JS vive en un solo bloque, generado una vez por listado.
+ * No depende de ningun framework de JS: crear/editar/confirmar abren en
+ * <dialog> nativos cargados por fetch, y el envio de formularios tambien
+ * va por fetch. Todo el JS vive en un solo bloque, generado una vez por listado.
  */
 class TailwindRenderer
 {
@@ -40,15 +40,18 @@ class TailwindRenderer
 
             $pkValue = $pk !== null ? $row[$pk->name] : '';
             $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
-            $deleteConfirm = $deleteMode === DeleteMode::CONFIRM
-                ? ' onsubmit="return confirm(' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
+
+            $deleteSubmit = $deleteMode === DeleteMode::CONFIRM
+                ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
                 : '';
 
-            $cells .= '<td class="px-4 py-2 text-right text-sm space-x-2">'
-                . '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="text-blue-600 hover:underline">' . $this->e($t->t('list.edit')) . '</button>'
-                . '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '" class="inline"' . $deleteConfirm . '>'
-                . '<button type="submit" class="text-red-600 hover:underline">' . $this->e($t->t('list.delete')) . '</button>'
+            $cells .= '<td class="px-4 py-2 text-right text-sm">'
+                . '<span class="inline-flex items-center gap-3">'
+                . '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>'
+                . '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '" class="inline"' . $deleteSubmit . '>'
+                . '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>'
                 . '</form>'
+                . '</span>'
                 . '</td>';
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
@@ -67,7 +70,7 @@ class TailwindRenderer
         <div class="max-w-5xl mx-auto p-6">
             <div class="flex items-center justify-between mb-4">
                 <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
-                <button type="button" onclick="appycrudOpenModal('{$createUrl}')" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">{$this->e($t->t('list.new'))}</button>
+                <button type="button" onclick="appycrudOpenModal('{$createUrl}')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">{$this->icon('plus')}<span>{$this->e($t->t('list.new'))}</span></button>
             </div>
             <div class="overflow-x-auto bg-white rounded-lg shadow">
                 <table class="min-w-full divide-y divide-gray-200">
@@ -82,14 +85,25 @@ class TailwindRenderer
     }
 
     /**
-     * Dialog nativo + JS vanilla, se genera una sola vez por pagina de listado.
-     * renderForm() asume que este shell ya esta presente (usa sus funciones globales).
+     * Dialogs nativos (formulario + confirmacion) y JS vanilla, se generan una
+     * sola vez por pagina de listado. renderForm() asume que este shell ya
+     * esta presente (usa sus funciones globales).
      */
     private function renderModalShell(): string
     {
-        return <<<'HTML'
+        $cancelLabel = $this->e($this->translator->t('form.cancel'));
+        $deleteLabel = $this->e($this->translator->t('list.delete'));
+
+        return <<<HTML
         <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-2xl backdrop:bg-black/50">
             <div id="appycrud-dialog-content"></div>
+        </dialog>
+        <dialog id="appycrud-confirm-dialog" class="rounded-lg shadow-xl p-6 w-full max-w-sm backdrop:bg-black/50">
+            <p id="appycrud-confirm-message" class="text-sm text-gray-700 mb-5"></p>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="appycrudCancelConfirm()" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$cancelLabel}</button>
+                <button type="button" onclick="appycrudAcceptConfirm()" class="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700">{$deleteLabel}</button>
+            </div>
         </dialog>
         <script>
         function appycrudOpenModal(url) {
@@ -108,6 +122,34 @@ class TailwindRenderer
             fetch(form.getAttribute('action'), { method: 'POST', body: new FormData(form) })
                 .then(function () { window.location.reload(); });
             return false;
+        }
+
+        var appycrudPendingForm = null;
+
+        function appycrudConfirmSubmit(event, form, message) {
+            event.preventDefault();
+            appycrudPendingForm = form;
+            document.getElementById('appycrud-confirm-message').textContent = message;
+            document.getElementById('appycrud-confirm-dialog').showModal();
+            return false;
+        }
+
+        function appycrudCancelConfirm() {
+            appycrudPendingForm = null;
+            document.getElementById('appycrud-confirm-dialog').close();
+        }
+
+        function appycrudAcceptConfirm() {
+            if (!appycrudPendingForm) {
+                return;
+            }
+
+            var form = appycrudPendingForm;
+            appycrudPendingForm = null;
+            document.getElementById('appycrud-confirm-dialog').close();
+
+            fetch(form.getAttribute('action'), { method: 'POST', body: new FormData(form) })
+                .then(function () { window.location.reload(); });
         }
         </script>
         HTML;
@@ -161,6 +203,22 @@ class TailwindRenderer
         }
 
         return '<div>' . $label . $input . '</div>';
+    }
+
+    /**
+     * Iconos SVG inline (trazo simple, sin dependencias externas ni CDN).
+     */
+    private function icon(string $name): string
+    {
+        $paths = [
+            'plus' => '<path d="M12 5v14M5 12h14" />',
+            'edit' => '<path d="M4 20h4l10.5-10.5a2 2 0 0 0-4-4L4 16v4Z" /><path d="M13 6l4 4" />',
+            'trash' => '<path d="M4 7h16" /><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /><path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" /><path d="M10 11v6" /><path d="M14 11v6" />',
+        ];
+
+        $path = $paths[$name] ?? '';
+
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">' . $path . '</svg>';
     }
 
     private function e(string $value): string
