@@ -4,6 +4,7 @@ namespace Appylogi\AppyCrud;
 
 use Appylogi\AppyCrud\Crud\CrudRepository;
 use Appylogi\AppyCrud\Crud\DeleteMode;
+use Appylogi\AppyCrud\Crud\Validator;
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Lang\Translator;
 use Appylogi\AppyCrud\Renderer\TailwindRenderer;
@@ -70,8 +71,8 @@ class AppyCrud
         $action = $get['action'] ?? 'list';
 
         return match ($action) {
-            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false),
-            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true),
+            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions()),
+            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions()),
             'store' => $this->handleStore($post, $baseUrl),
             'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl),
             'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl),
@@ -79,22 +80,52 @@ class AppyCrud
         };
     }
 
+    /** @return array<string, array<int, array{value: mixed, label: string}>> */
+    private function referenceOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->schema->columns() as $column) {
+            if ($column->reference !== null) {
+                $options[$column->name] = $this->repository->referenceOptions($column);
+            }
+        }
+
+        return $options;
+    }
+
     private function renderList(array $get, string $baseUrl): string
     {
         $page = max(1, (int) ($get['page'] ?? 1));
         $pagination = $this->repository->paginate($page);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode);
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions());
     }
 
     private function handleStore(array $post, string $baseUrl): string
     {
+        $errors = Validator::validate($this->schema, $post);
+
+        if ($errors !== []) {
+            http_response_code(422);
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors);
+        }
+
         $this->repository->insert($post);
         $this->redirect($baseUrl);
     }
 
     private function handleUpdate(mixed $id, array $post, string $baseUrl): string
     {
+        $errors = Validator::validate($this->schema, $post);
+
+        if ($errors !== []) {
+            http_response_code(422);
+            $pk = $this->schema->primaryKey();
+            $values = $pk !== null ? $post + [$pk->name => $id] : $post;
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors);
+        }
+
         $this->repository->update($id, $post);
         $this->redirect($baseUrl);
     }

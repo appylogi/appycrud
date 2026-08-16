@@ -20,10 +20,17 @@ $isNew = !file_exists($dbFile);
 $pdo = new \PDO('sqlite:' . $dbFile);
 
 if ($isNew) {
+    $pdo->exec('CREATE TABLE categorias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL
+    )');
+    $pdo->exec("INSERT INTO categorias (nombre) VALUES ('Trabajo'), ('Personal'), ('Urgente')");
+
     $pdo->exec('CREATE TABLE tareas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         titulo TEXT NOT NULL,
         descripcion TEXT,
+        categoria_id INTEGER REFERENCES categorias(id),
         completada INTEGER NOT NULL DEFAULT 0,
         creada_en TEXT DEFAULT CURRENT_TIMESTAMP
     )');
@@ -35,8 +42,11 @@ $config = new TableConfig([
     'id' => ['hidden' => true],
     'creada_en' => ['hidden' => true, 'readOnly' => true],
     'completada' => ['label' => 'Completada', 'inputType' => 'checkbox'],
-    'titulo' => ['label' => 'Titulo'],
+    // 'rules' usa el mismo mecanismo de override que cualquier otra propiedad de Column.
+    'titulo' => ['label' => 'Titulo', 'rules' => ['required', 'max:100']],
     'descripcion' => ['label' => 'Descripcion', 'inputType' => 'textarea'],
+    // 'categoria_id' ya se detecta como FK real hacia categorias(id); solo se ajusta el label.
+    'categoria_id' => ['label' => 'Categoria'],
 ]);
 
 $locale = $_GET['lang'] ?? 'es';

@@ -20,6 +20,13 @@ class TableIntrospector
             default => throw new RuntimeException("AppyCrud: driver '{$connection->driver()}' no soportado para introspeccion automatica."),
         };
 
+        $foreignKeys = match ($connection->driver()) {
+            'mysql' => $this->foreignKeysMysql($connection, $table),
+            'pgsql' => $this->foreignKeysPgsql($connection, $table),
+            'sqlite' => $this->foreignKeysSqlite($connection, $table),
+            default => [],
+        };
+
         $schema = new TableSchema($table);
 
         foreach ($rows as $row) {
@@ -31,6 +38,7 @@ class TableIntrospector
                 isPrimaryKey: $row['isPrimaryKey'],
                 isAutoIncrement: $row['isAutoIncrement'],
                 maxLength: $row['maxLength'],
+                reference: $foreignKeys[$row['name']] ?? null,
             );
 
             if ($config !== null) {
@@ -41,6 +49,70 @@ class TableIntrospector
         }
 
         return $schema;
+    }
+
+    /** @return array<string, array{table: string, column: string}> columna local => referencia */
+    private function foreignKeysMysql(Connection $connection, string $table): array
+    {
+        $sql = "SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM information_schema.key_column_usage
+                WHERE table_schema = DATABASE() AND table_name = :table
+                  AND referenced_table_name IS NOT NULL";
+
+        $stmt = $connection->pdo()->prepare($sql);
+        $stmt->execute(['table' => $table]);
+
+        $foreignKeys = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $foreignKeys[$r['COLUMN_NAME']] = [
+                'table' => $r['REFERENCED_TABLE_NAME'],
+                'column' => $r['REFERENCED_COLUMN_NAME'],
+            ];
+        }
+
+        return $foreignKeys;
+    }
+
+    /** @return array<string, array{table: string, column: string}> */
+    private function foreignKeysPgsql(Connection $connection, string $table): array
+    {
+        $sql = "SELECT kcu.column_name, ccu.table_name AS referenced_table_name, ccu.column_name AS referenced_column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name AND tc.table_name = kcu.table_name
+                JOIN information_schema.constraint_column_usage ccu
+                    ON tc.constraint_name = ccu.constraint_name
+                WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = :table";
+
+        $stmt = $connection->pdo()->prepare($sql);
+        $stmt->execute(['table' => $table]);
+
+        $foreignKeys = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $foreignKeys[$r['column_name']] = [
+                'table' => $r['referenced_table_name'],
+                'column' => $r['referenced_column_name'],
+            ];
+        }
+
+        return $foreignKeys;
+    }
+
+    /** @return array<string, array{table: string, column: string}> */
+    private function foreignKeysSqlite(Connection $connection, string $table): array
+    {
+        $quoted = $connection->quoteIdentifier($table);
+        $stmt = $connection->pdo()->query("PRAGMA foreign_key_list({$quoted})");
+
+        $foreignKeys = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $foreignKeys[$r['from']] = [
+                'table' => $r['table'],
+                'column' => $r['to'],
+            ];
+        }
+
+        return $foreignKeys;
     }
 
     private function introspectMysql(Connection $connection, string $table): array

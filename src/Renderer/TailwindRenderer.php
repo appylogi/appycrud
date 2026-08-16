@@ -19,11 +19,19 @@ class TailwindRenderer
     {
     }
 
-    public function renderList(TableSchema $schema, array $pagination, string $baseUrl, string $deleteMode = DeleteMode::CONFIRM): string
+    /** @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones (para resolver el label de las FK en el listado) */
+    public function renderList(TableSchema $schema, array $pagination, string $baseUrl, string $deleteMode = DeleteMode::CONFIRM, array $referenceOptions = []): string
     {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
         $pk = $schema->primaryKey();
+
+        $referenceLabels = [];
+        foreach ($referenceOptions as $columnName => $options) {
+            foreach ($options as $option) {
+                $referenceLabels[$columnName][(string) $option['value']] = (string) $option['label'];
+            }
+        }
 
         $headers = '';
         foreach ($columns as $column) {
@@ -35,7 +43,12 @@ class TailwindRenderer
         foreach ($pagination['rows'] as $row) {
             $cells = '';
             foreach ($columns as $column) {
-                $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $this->e((string) ($row[$column->name] ?? '')) . '</td>';
+                $rawValue = (string) ($row[$column->name] ?? '');
+                $displayValue = $column->reference !== null
+                    ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
+                    : $rawValue;
+
+                $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $this->e($displayValue) . '</td>';
             }
 
             $pkValue = $pk !== null ? $row[$pk->name] : '';
@@ -119,8 +132,19 @@ class TailwindRenderer
         }
         function appycrudSubmitForm(event, form) {
             event.preventDefault();
-            fetch(form.getAttribute('action'), { method: 'POST', body: new FormData(form) })
-                .then(function () { window.location.reload(); });
+            fetch(form.getAttribute('action'), {
+                method: 'POST',
+                body: new FormData(form),
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            })
+                .then(function (response) {
+                    if (response.status === 422) {
+                        return response.text().then(function (html) {
+                            document.getElementById('appycrud-dialog-content').innerHTML = html;
+                        });
+                    }
+                    window.location.reload();
+                });
             return false;
         }
 
@@ -155,7 +179,11 @@ class TailwindRenderer
         HTML;
     }
 
-    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit): string
+    /**
+     * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones del select
+     * @param array<string, string[]> $errors columna => mensajes de error
+     */
+    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = []): string
     {
         $t = $this->translator;
         $pk = $schema->primaryKey();
@@ -169,7 +197,12 @@ class TailwindRenderer
                 continue;
             }
 
-            $fields .= $this->renderField($column, (string) ($values[$column->name] ?? ''));
+            $fields .= $this->renderField(
+                $column,
+                (string) ($values[$column->name] ?? ''),
+                $referenceOptions[$column->name] ?? [],
+                $errors[$column->name] ?? [],
+            );
         }
 
         return <<<HTML
@@ -186,23 +219,42 @@ class TailwindRenderer
         HTML;
     }
 
-    private function renderField(Column $column, string $value): string
+    /**
+     * @param array<int, array{value: mixed, label: string}> $options
+     * @param string[] $errorMessages
+     */
+    private function renderField(Column $column, string $value, array $options = [], array $errorMessages = []): string
     {
         $label = '<label class="block text-sm font-medium text-gray-700 mb-1">' . $this->e($column->label) . '</label>';
+        $errorClass = $errorMessages !== [] ? ' border-red-400' : '';
 
-        if ($column->inputType === 'textarea') {
-            $input = '<textarea name="' . $this->e($column->name) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" rows="4">' . $this->e($value) . '</textarea>';
+        if ($column->reference !== null) {
+            $optionsHtml = '<option value="">&mdash;</option>';
+            foreach ($options as $option) {
+                $selected = (string) $option['value'] === $value ? ' selected' : '';
+                $optionsHtml .= '<option value="' . $this->e((string) $option['value']) . '"' . $selected . '>' . $this->e((string) $option['label']) . '</option>';
+            }
+            $input = '<select name="' . $this->e($column->name) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white' . $errorClass . '"'
+                . (!$column->nullable ? ' required' : '')
+                . '>' . $optionsHtml . '</select>';
+        } elseif ($column->inputType === 'textarea') {
+            $input = '<textarea name="' . $this->e($column->name) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm' . $errorClass . '" rows="4">' . $this->e($value) . '</textarea>';
         } elseif ($column->inputType === 'checkbox') {
             $checked = $value ? 'checked' : '';
             $input = '<input type="checkbox" name="' . $this->e($column->name) . '" ' . $checked . ' class="rounded border-gray-300">';
         } else {
-            $input = '<input type="' . $this->e($column->inputType) . '" name="' . $this->e($column->name) . '" value="' . $this->e($value) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"'
+            $input = '<input type="' . $this->e($column->inputType) . '" name="' . $this->e($column->name) . '" value="' . $this->e($value) . '" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm' . $errorClass . '"'
                 . ($column->maxLength !== null ? ' maxlength="' . $column->maxLength . '"' : '')
                 . (!$column->nullable ? ' required' : '')
                 . '>';
         }
 
-        return '<div>' . $label . $input . '</div>';
+        $errorHtml = '';
+        foreach ($errorMessages as $message) {
+            $errorHtml .= '<p class="mt-1 text-xs text-red-600">' . $this->e($message) . '</p>';
+        }
+
+        return '<div>' . $label . $input . $errorHtml . '</div>';
     }
 
     /**

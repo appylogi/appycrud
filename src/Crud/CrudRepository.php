@@ -3,6 +3,8 @@
 namespace Appylogi\AppyCrud\Crud;
 
 use Appylogi\AppyCrud\Database\Connection;
+use Appylogi\AppyCrud\Schema\Column;
+use Appylogi\AppyCrud\Schema\TableIntrospector;
 use Appylogi\AppyCrud\Schema\TableSchema;
 use RuntimeException;
 
@@ -136,6 +138,56 @@ class CrudRepository
         $column = $this->connection->quoteIdentifier($this->softDeleteColumn);
 
         return "WHERE {$column} = 0 OR {$column} IS NULL";
+    }
+
+    /**
+     * Opciones para poblar un <select> de una columna con llave foranea.
+     * @return array<int, array{value: mixed, label: string}>
+     */
+    public function referenceOptions(Column $column, int $limit = 500): array
+    {
+        if ($column->reference === null) {
+            return [];
+        }
+
+        $refTable = $column->reference['table'];
+        $valueColumn = $column->reference['column'];
+        $labelColumn = $column->reference['label'] ?? $this->guessLabelColumn($refTable, $valueColumn);
+
+        $tableQ = $this->connection->quoteIdentifier($refTable);
+        $valueQ = $this->connection->quoteIdentifier($valueColumn);
+        $labelQ = $this->connection->quoteIdentifier($labelColumn);
+
+        $sql = "SELECT {$valueQ} AS value, {$labelQ} AS label FROM {$tableQ} ORDER BY {$labelQ} LIMIT :limit";
+        $stmt = $this->connection->pdo()->prepare($sql);
+        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Cuando la referencia no indica 'label', se adivina la columna mas
+     * legible de la tabla referenciada (nombre, titulo, descripcion, etc.).
+     */
+    private function guessLabelColumn(string $table, string $fallback): string
+    {
+        $refSchema = (new TableIntrospector())->introspect($this->connection, $table);
+
+        $preferred = ['nombre', 'titulo', 'name', 'title', 'descripcion', 'label'];
+        foreach ($preferred as $candidate) {
+            if ($refSchema->column($candidate) !== null) {
+                return $candidate;
+            }
+        }
+
+        foreach ($refSchema->columns() as $candidateColumn) {
+            if (!$candidateColumn->isPrimaryKey && $candidateColumn->inputType === 'text') {
+                return $candidateColumn->name;
+            }
+        }
+
+        return $fallback;
     }
 
     private function filterToKnownColumns(array $data): array
