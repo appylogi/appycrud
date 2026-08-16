@@ -16,6 +16,7 @@ class CrudRepository
     public function __construct(
         private Connection $connection,
         private TableSchema $schema,
+        private ?string $softDeleteColumn = null,
     ) {
     }
 
@@ -31,14 +32,16 @@ class CrudRepository
             $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($orderBy) . ' ' . $dir;
         }
 
-        $sql = "SELECT * FROM {$table} {$orderSql} LIMIT :limit OFFSET :offset";
+        $whereSql = $this->excludeSoftDeletedSql();
+
+        $sql = "SELECT * FROM {$table} {$whereSql} {$orderSql} LIMIT :limit OFFSET :offset";
         $stmt = $this->connection->pdo()->prepare($sql);
         $stmt->bindValue(':limit', $perPage, \PDO::PARAM_INT);
         $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll();
 
-        $total = (int) $this->connection->pdo()->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
+        $total = (int) $this->connection->pdo()->query("SELECT COUNT(*) FROM {$table} {$whereSql}")->fetchColumn();
 
         return [
             'rows' => $rows,
@@ -113,8 +116,26 @@ class CrudRepository
         $table = $this->connection->quoteIdentifier($this->schema->table);
         $pkColumn = $this->connection->quoteIdentifier($pk->name);
 
+        if ($this->softDeleteColumn !== null) {
+            $softColumn = $this->connection->quoteIdentifier($this->softDeleteColumn);
+            $stmt = $this->connection->pdo()->prepare("UPDATE {$table} SET {$softColumn} = 1 WHERE {$pkColumn} = :pk");
+            $stmt->execute(['pk' => $primaryKeyValue]);
+            return;
+        }
+
         $stmt = $this->connection->pdo()->prepare("DELETE FROM {$table} WHERE {$pkColumn} = :pk");
         $stmt->execute(['pk' => $primaryKeyValue]);
+    }
+
+    private function excludeSoftDeletedSql(): string
+    {
+        if ($this->softDeleteColumn === null) {
+            return '';
+        }
+
+        $column = $this->connection->quoteIdentifier($this->softDeleteColumn);
+
+        return "WHERE {$column} = 0 OR {$column} IS NULL";
     }
 
     private function filterToKnownColumns(array $data): array

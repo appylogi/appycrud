@@ -2,14 +2,16 @@
 
 namespace Appylogi\AppyCrud\Renderer;
 
+use Appylogi\AppyCrud\Crud\DeleteMode;
 use Appylogi\AppyCrud\Lang\Translator;
 use Appylogi\AppyCrud\Schema\Column;
 use Appylogi\AppyCrud\Schema\TableSchema;
 
 /**
  * Genera el HTML de listado/formulario con clases Tailwind.
- * No depende de ningun framework de JS: el unico script es el confirm()
- * de eliminar, en vanilla JS.
+ * No depende de ningun framework de JS: crear/editar abren en un <dialog>
+ * nativo cargado por fetch, y el envio del formulario tambien va por fetch.
+ * Todo el JS vive en un solo bloque, generado una vez por listado.
  */
 class TailwindRenderer
 {
@@ -17,7 +19,7 @@ class TailwindRenderer
     {
     }
 
-    public function renderList(TableSchema $schema, array $pagination, string $baseUrl): string
+    public function renderList(TableSchema $schema, array $pagination, string $baseUrl, string $deleteMode = DeleteMode::CONFIRM): string
     {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
@@ -37,9 +39,14 @@ class TailwindRenderer
             }
 
             $pkValue = $pk !== null ? $row[$pk->name] : '';
+            $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
+            $deleteConfirm = $deleteMode === DeleteMode::CONFIRM
+                ? ' onsubmit="return confirm(' . $this->jsString($t->t('confirm.delete')) . ');"'
+                : '';
+
             $cells .= '<td class="px-4 py-2 text-right text-sm space-x-2">'
-                . '<a href="' . $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '" class="text-blue-600 hover:underline">' . $this->e($t->t('list.edit')) . '</a>'
-                . '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '" class="inline" onsubmit="return confirm(' . $this->jsString($t->t('confirm.delete')) . ');">'
+                . '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="text-blue-600 hover:underline">' . $this->e($t->t('list.edit')) . '</button>'
+                . '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '" class="inline"' . $deleteConfirm . '>'
                 . '<button type="submit" class="text-red-600 hover:underline">' . $this->e($t->t('list.delete')) . '</button>'
                 . '</form>'
                 . '</td>';
@@ -53,12 +60,14 @@ class TailwindRenderer
         }
 
         $pageInfo = $t->t('list.page_of', ['page' => $pagination['page'], 'lastPage' => $pagination['lastPage']]);
+        $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
+        $modal = $this->renderModalShell();
 
         return <<<HTML
         <div class="max-w-5xl mx-auto p-6">
             <div class="flex items-center justify-between mb-4">
                 <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
-                <a href="{$this->e($baseUrl)}?action=create" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">{$this->e($t->t('list.new'))}</a>
+                <button type="button" onclick="appycrudOpenModal('{$createUrl}')" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">{$this->e($t->t('list.new'))}</button>
             </div>
             <div class="overflow-x-auto bg-white rounded-lg shadow">
                 <table class="min-w-full divide-y divide-gray-200">
@@ -68,6 +77,39 @@ class TailwindRenderer
             </div>
             <p class="mt-3 text-sm text-gray-500">{$this->e($pageInfo)}</p>
         </div>
+        {$modal}
+        HTML;
+    }
+
+    /**
+     * Dialog nativo + JS vanilla, se genera una sola vez por pagina de listado.
+     * renderForm() asume que este shell ya esta presente (usa sus funciones globales).
+     */
+    private function renderModalShell(): string
+    {
+        return <<<'HTML'
+        <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-2xl backdrop:bg-black/50">
+            <div id="appycrud-dialog-content"></div>
+        </dialog>
+        <script>
+        function appycrudOpenModal(url) {
+            fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.text(); })
+                .then(function (html) {
+                    document.getElementById('appycrud-dialog-content').innerHTML = html;
+                    document.getElementById('appycrud-dialog').showModal();
+                });
+        }
+        function appycrudCloseModal() {
+            document.getElementById('appycrud-dialog').close();
+        }
+        function appycrudSubmitForm(event, form) {
+            event.preventDefault();
+            fetch(form.getAttribute('action'), { method: 'POST', body: new FormData(form) })
+                .then(function () { window.location.reload(); });
+            return false;
+        }
+        </script>
         HTML;
     }
 
@@ -89,12 +131,12 @@ class TailwindRenderer
         }
 
         return <<<HTML
-        <div class="max-w-2xl mx-auto p-6">
+        <div class="p-6">
             <h1 class="text-xl font-bold text-gray-900 mb-4">{$this->e($title)}</h1>
-            <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="bg-white rounded-lg shadow p-6 space-y-4">
+            <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="space-y-4" onsubmit="return appycrudSubmitForm(event, this)">
                 {$fields}
                 <div class="flex justify-end gap-3 pt-2">
-                    <a href="{$this->e($baseUrl)}" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$this->e($t->t('form.cancel'))}</a>
+                    <button type="button" onclick="appycrudCloseModal()" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$this->e($t->t('form.cancel'))}</button>
                     <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">{$this->e($t->t('form.save'))}</button>
                 </div>
             </form>

@@ -40,10 +40,22 @@ $config = new TableConfig([
 ]);
 
 $locale = $_GET['lang'] ?? 'es';
-$crud = new AppyCrud($connection, 'tareas', $config, $locale);
+
+// deleteMode acepta: DeleteMode::CONFIRM (default), DeleteMode::DIRECT o DeleteMode::SOFT
+// (SOFT requiere 'softDeleteColumn' con el nombre de una columna existente en la tabla).
+$options = ['deleteMode' => \Appylogi\AppyCrud\Crud\DeleteMode::CONFIRM];
+
+$crud = new AppyCrud($connection, 'tareas', $config, $locale, $options);
 
 $baseUrl = strtok($_SERVER['REQUEST_URI'], '?');
 $html = $crud->handle($baseUrl, $_GET, $_POST);
+
+$isAjax = isset($_GET['ajax']) || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
+
+if ($isAjax) {
+    echo $html;
+    exit;
+}
 
 ?><!DOCTYPE html>
 <html lang="<?= htmlspecialchars($locale) ?>">
