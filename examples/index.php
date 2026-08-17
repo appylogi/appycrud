@@ -14,6 +14,8 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Appylogi\AppyCrud\AppyCrud;
 use Appylogi\AppyCrud\Crud\Condition;
+use Appylogi\AppyCrud\Crud\HookAbortException;
+use Appylogi\AppyCrud\Crud\ManyToMany;
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Schema\TableConfig;
 
@@ -23,11 +25,27 @@ $isNew = !file_exists($dbFile);
 $pdo = new \PDO('sqlite:' . $dbFile);
 
 if ($isNew) {
+    // 'activa' demuestra 'conditions' en el override de 'reference' mas abajo:
+    // 'Urgente' queda inactiva y no aparece en el select de categorias.
     $pdo->exec('CREATE TABLE categorias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL,
+        activa INTEGER NOT NULL DEFAULT 1
+    )');
+    $pdo->exec("INSERT INTO categorias (nombre, activa) VALUES ('Trabajo', 1), ('Personal', 1), ('Urgente', 0)");
+
+    // Tabla + pivote para la relacion muchos-a-muchos (ver 'manyToMany' mas abajo).
+    // Distinto de 'etiquetas' (columna CSV, multiselect_native de toda la vida):
+    // aqui cada colaborador es una fila real en su propia tabla.
+    $pdo->exec('CREATE TABLE colaboradores (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL
     )');
-    $pdo->exec("INSERT INTO categorias (nombre) VALUES ('Trabajo'), ('Personal'), ('Urgente')");
+    $pdo->exec("INSERT INTO colaboradores (nombre) VALUES ('Ana'), ('Beto'), ('Caro')");
+    $pdo->exec('CREATE TABLE tareas_colaboradores (
+        tarea_id INTEGER NOT NULL,
+        colaborador_id INTEGER NOT NULL
+    )');
 
     // 'titulo' es VARCHAR (campo corto); 'descripcion' es TEXT (la libreria
     // detecta TEXT/LONGTEXT como contenido largo y lo renderiza como textarea).
@@ -56,8 +74,11 @@ $config = new TableConfig([
     // 'rules' usa el mismo mecanismo de override que cualquier otra propiedad de Column.
     'titulo' => ['label' => 'Titulo', 'rules' => ['required', 'max:100']],
     'descripcion' => ['label' => 'Descripcion', 'inputType' => 'text'],
-    // 'categoria_id' ya se detecta como FK real hacia categorias(id); solo se ajusta el label.
-    'categoria_id' => ['label' => 'Categoria'],
+    // 'conditions' filtra las opciones del select: solo categorias con activa=1.
+    'categoria_id' => ['label' => 'Categoria', 'reference' => [
+        'table' => 'categorias', 'column' => 'id', 'label' => 'nombre',
+        'conditions' => [Condition::where('activa', '=', 1)],
+    ]],
     // 'dropdown' con opciones estaticas (no viene de otra tabla, a diferencia de categoria_id).
     'prioridad' => ['label' => 'Prioridad', 'inputType' => 'dropdown', 'options' => [
         ['value' => 'baja', 'label' => 'Baja'],
@@ -102,6 +123,30 @@ $options = [
     // 'insertDefaults': fuerza este valor en cada insert, ignorando lo que mande el cliente.
     'insertDefaults' => [
         'archivada' => 0,
+    ],
+    // Relacion muchos-a-muchos real (tabla + pivote), a diferencia de 'etiquetas' (CSV).
+    'manyToMany' => [
+        new ManyToMany(
+            name: 'colaboradores',
+            pivotTable: 'tareas_colaboradores',
+            localKey: 'tarea_id',
+            foreignKey: 'colaborador_id',
+            relatedTable: 'colaboradores',
+        ),
+    ],
+    // Se ejecutan antes/despues de insert/update/delete. Lanzar HookAbortException
+    // cancela la operacion y muestra el mensaje (insert/update: en el mismo modal;
+    // delete: simplemente no borra).
+    'hooks' => [
+        'beforeDelete' => function (mixed $id) use ($pdo) {
+            $stmt = $pdo->prepare('SELECT prioridad FROM tareas WHERE id = :id');
+            $stmt->execute(['id' => $id]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if ($row !== false && $row['prioridad'] === 'alta') {
+                throw new HookAbortException('No se pueden eliminar tareas de prioridad alta.');
+            }
+        },
     ],
 ];
 

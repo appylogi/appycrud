@@ -18,6 +18,8 @@ Pensado como alternativa libre y descargable a herramientas como [GroceryCRUD](h
 - **24 tipos de campo** (`boolean`, `dropdown_search`, `multiselect_native`, `password_toggle`, `relational_native`, etc.) — ver [catálogo completo](docs/uso.md#tipos-de-campo).
 - **Scoping** vía `where`/`whereIn` (multi-tenant, "solo mis registros") aplicado a listado, exportar, ver, editar y eliminar — no solo cosmético en el listado.
 - **Control de campos**: qué columnas se pueden insertar y cuáles editar, por separado.
+- **Muchos a muchos** vía tabla pivote (`ManyToMany`), sincronizada automáticamente al guardar.
+- **Hooks** antes/después de insert/update/delete, con posibilidad de cancelar la operación.
 - **i18n** (español/inglés incluido, agregar un idioma es un archivo nuevo en `lang/`).
 - **Un solo sistema de diseño** (Tailwind, precompilado) para mantener todo consistente; la arquitectura permite agregar otros temas más adelante.
 

@@ -107,6 +107,84 @@ Si tu base de datos tiene una `FOREIGN KEY` real (MySQL, PostgreSQL o SQLite con
 
 Este mismo override sirve para bases de datos legacy que no tienen la `FOREIGN KEY` declarada como constraint real (muy común en sistemas antiguos) — declaras la relación a mano y AppyCrud la trata igual que una detectada automáticamente (select poblado, label resuelto en listado/vista/exportación).
 
+### Filtrar las opciones del select (`conditions`)
+
+Si solo quieres ofrecer un subconjunto de la tabla referenciada (ej. "solo categorías activas"), agrega `conditions` con el mismo tipo `Condition` que se usa para [scoping](#restringir-por-where-scoping):
+
+```php
+use Appylogi\AppyCrud\Crud\Condition;
+
+'categoria_id' => ['reference' => [
+    'table' => 'categorias', 'column' => 'id', 'label' => 'nombre',
+    'conditions' => [Condition::where('activa', '=', 1)],
+]],
+```
+
+Esto afecta solo las opciones que se muestran en el `<select>` — no cambia lo que se ve en el listado si una categoría deja de estar activa después de asignada a una tarea existente (el label ya guardado se sigue resolviendo igual).
+
+## Muchos a muchos
+
+Para relaciones muchos-a-muchos vía tabla pivote (ej. una tarea puede tener varios colaboradores, y un colaborador puede estar en varias tareas), usa `Crud\ManyToMany` en la opción `manyToMany`:
+
+```php
+use Appylogi\AppyCrud\Crud\ManyToMany;
+
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'manyToMany' => [
+        new ManyToMany(
+            name: 'colaboradores',           // nombre logico, se usa como m2m_colaboradores en el form
+            pivotTable: 'tareas_colaboradores',
+            localKey: 'tarea_id',              // FK en el pivote hacia tareas.id
+            foreignKey: 'colaborador_id',       // FK en el pivote hacia colaboradores.id
+            relatedTable: 'colaboradores',
+        ),
+    ],
+]);
+```
+
+Con esto, el formulario de crear/editar muestra un multiselect adicional ("Colaboradores") poblado desde la tabla `colaboradores`. AppyCrud sincroniza la tabla pivote automáticamente: borra las asociaciones existentes e inserta las nuevas, después de guardar el registro principal — y también las limpia antes de eliminar el registro (evita filas huérfanas en el pivote). En la vista de solo lectura (`view`) se muestran los nombres ya resueltos, separados por coma.
+
+**Diferencia con `multiselect_native`/`multiselect_searchable` como tipo de campo (ver [Tipos de campo](#tipos-de-campo)):** esos guardan la selección como texto separado por comas en una sola columna de la propia tabla (`tareas.etiquetas`), sin tabla de unión. `manyToMany` sí usa una tabla pivote real — úsalo cuando la relación merece existir como entidad propia consultable desde otro lado (ej. reportes por colaborador), no solo como una lista de valores dentro de un registro.
+
+**Limitaciones de esta versión:** las relaciones `manyToMany` no aparecen como columna en el listado ni en la exportación (evita tener que resolver un `GROUP_CONCAT`/`STRING_AGG` distinto por motor); tampoco se copian al usar "Clonar" (el registro clonado empieza sin asociaciones).
+
+## Hooks antes/después de las acciones
+
+Para ejecutar código propio alrededor de `insert`/`update`/`delete` — auditoría, notificaciones, calcular un campo, bloquear un borrado bajo cierta condición — usa la opción `hooks`:
+
+```php
+use Appylogi\AppyCrud\Crud\HookAbortException;
+
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'hooks' => [
+        'beforeInsert' => function (array $data): array {
+            $data['slug'] = strtolower(str_replace(' ', '-', $data['titulo']));
+            return $data; // el array que retornes es lo que realmente se inserta
+        },
+        'afterInsert' => function (string $id, array $data): void {
+            // ej. enviar una notificacion, escribir un log...
+        },
+        'beforeUpdate' => function (mixed $id, array $data): array {
+            return $data;
+        },
+        'afterUpdate' => function (mixed $id, array $data): void {},
+        'beforeDelete' => function (mixed $id): void {
+            if (/* alguna condicion */ false) {
+                throw new HookAbortException('Este registro no se puede eliminar.');
+            }
+        },
+        'afterDelete' => function (mixed $id): void {},
+    ],
+]);
+```
+
+Reglas del contrato:
+
+- `beforeInsert`/`beforeUpdate` **deben retornar un array** (el que efectivamente se guarda) — si no modificas nada, retorna `$data` tal cual.
+- Lanzar `HookAbortException('mensaje')` desde cualquier hook `before*` cancela la operación. Para `beforeInsert`/`beforeUpdate`, el mensaje se muestra dentro del mismo modal sin perder lo ya escrito. Para `beforeDelete`, simplemente no se borra nada (no hay una forma estándar de mostrar un error en el flujo de borrado, ya que puede dispararse desde el borrado masivo).
+- Los hooks `after*` no pueden cancelar nada — ya se guardó/eliminó; son solo para efectos secundarios.
+- En `bulkDelete`, `beforeDelete`/`afterDelete` se ejecutan **una vez por cada registro** seleccionado, no una vez por el lote completo.
+
 ## Opciones de `AppyCrud`
 
 El cuarto argumento es el idioma (`'es'`/`'en'`, ver [i18n](#i18n)); el quinto es un array de opciones:
@@ -148,6 +226,8 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `insertDefaults` | `[]` | Valores forzados en cada insert, ver la misma sección. |
 | `defaultOrderBy` / `defaultOrderDir` | `''` / `'ASC'` | Orden inicial cuando la URL no trae `orderBy`/`orderDir` (el usuario puede cambiarlo con clic en cualquier columna). |
 | `insertFields` / `editFields` | `null` | Restringe qué columnas aparecen y se aceptan al crear/editar, ver [Campos permitidos](#campos-permitidos-al-insertar-y-editar). |
+| `manyToMany` | `[]` | `ManyToMany[]`, ver [Muchos a muchos](#muchos-a-muchos). |
+| `hooks` | `[]` | Callables antes/después de insert/update/delete, ver [Hooks](#hooks-antesdespués-de-las-acciones). |
 
 Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero siguen siendo consultas al servidor — no se pierden resultados en tablas con miles de filas y paginación, a diferencia de un filtro puramente en JavaScript sobre lo ya cargado en pantalla.
 

@@ -36,12 +36,24 @@ class CrudRepository
      */
     private function baseConditionsSql(): array
     {
+        return $this->conditionsToSql($this->baseConditions, 'base');
+    }
+
+    /**
+     * Traduce un array de Condition a fragmentos SQL + params, con un prefijo
+     * de parametro propio para poder combinar varios juegos de condiciones
+     * (base + las de una referencia puntual) sin colisionar nombres.
+     * @param Condition[] $conditions
+     * @return array{0: string[], 1: array<string, mixed>}
+     */
+    private function conditionsToSql(array $conditions, string $paramPrefix): array
+    {
         $sqlParts = [];
         $params = [];
 
-        foreach ($this->baseConditions as $index => $condition) {
+        foreach ($conditions as $index => $condition) {
             $quotedColumn = $this->connection->quoteIdentifier($condition->column);
-            $paramPrefix = ':base_' . $index . '_';
+            $prefix = ':' . $paramPrefix . '_' . $index . '_';
 
             if ($condition->operator === 'IN' || $condition->operator === 'NOT IN') {
                 $values = (array) $condition->value;
@@ -54,7 +66,7 @@ class CrudRepository
 
                 $placeholders = [];
                 foreach (array_values($values) as $i => $value) {
-                    $key = $paramPrefix . $i;
+                    $key = $prefix . $i;
                     $placeholders[] = $key;
                     $params[$key] = $value;
                 }
@@ -63,7 +75,7 @@ class CrudRepository
             } elseif ($condition->operator === 'IS NULL' || $condition->operator === 'IS NOT NULL') {
                 $sqlParts[] = "{$quotedColumn} {$condition->operator}";
             } else {
-                $key = $paramPrefix . '0';
+                $key = $prefix . '0';
                 $sqlParts[] = "{$quotedColumn} {$condition->operator} {$key}";
                 $params[$key] = $condition->value;
             }
@@ -408,6 +420,9 @@ class CrudRepository
 
     /**
      * Opciones para poblar un <select> de una columna con llave foranea.
+     * Si el override de 'reference' trae 'conditions' (Condition[]), solo se
+     * listan las filas de la tabla referenciada que las cumplen (ej. "solo
+     * categorias activas").
      * @return array<int, array{value: mixed, label: string}>
      */
     public function referenceOptions(Column $column, int $limit = 500): array
@@ -419,17 +434,94 @@ class CrudRepository
         $refTable = $column->reference['table'];
         $valueColumn = $column->reference['column'];
         $labelColumn = $column->reference['label'] ?? $this->guessLabelColumn($refTable, $valueColumn);
+        $conditions = $column->reference['conditions'] ?? [];
 
         $tableQ = $this->connection->quoteIdentifier($refTable);
         $valueQ = $this->connection->quoteIdentifier($valueColumn);
         $labelQ = $this->connection->quoteIdentifier($labelColumn);
 
-        $sql = "SELECT {$valueQ} AS value, {$labelQ} AS label FROM {$tableQ} ORDER BY {$labelQ} LIMIT :limit";
+        [$conditionSql, $params] = $this->conditionsToSql($conditions, 'refcond_' . $column->name);
+        $whereSql = $conditionSql === [] ? '' : 'WHERE ' . implode(' AND ', $conditionSql);
+
+        $sql = "SELECT {$valueQ} AS value, {$labelQ} AS label FROM {$tableQ} {$whereSql} ORDER BY {$labelQ} LIMIT :limit";
+        $stmt = $this->connection->pdo()->prepare($sql);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Opciones para poblar el multiselect de una relacion muchos-a-muchos
+     * (todas las filas de la tabla relacionada, no solo las ya asociadas).
+     * @return array<int, array{value: mixed, label: string}>
+     */
+    public function manyToManyOptions(ManyToMany $relation, int $limit = 500): array
+    {
+        $labelColumn = $relation->labelColumn ?? $this->guessLabelColumn($relation->relatedTable, $relation->relatedKey);
+
+        $tableQ = $this->connection->quoteIdentifier($relation->relatedTable);
+        $keyQ = $this->connection->quoteIdentifier($relation->relatedKey);
+        $labelQ = $this->connection->quoteIdentifier($labelColumn);
+
+        $sql = "SELECT {$keyQ} AS value, {$labelQ} AS label FROM {$tableQ} ORDER BY {$labelQ} LIMIT :limit";
         $stmt = $this->connection->pdo()->prepare($sql);
         $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Ids ya asociados a $primaryKeyValue en la tabla pivote de la relacion.
+     * @return string[]
+     */
+    public function manyToManySelected(ManyToMany $relation, mixed $primaryKeyValue): array
+    {
+        $pivotQ = $this->connection->quoteIdentifier($relation->pivotTable);
+        $foreignQ = $this->connection->quoteIdentifier($relation->foreignKey);
+        $localQ = $this->connection->quoteIdentifier($relation->localKey);
+
+        $stmt = $this->connection->pdo()->prepare("SELECT {$foreignQ} AS related_id FROM {$pivotQ} WHERE {$localQ} = :id");
+        $stmt->execute(['id' => $primaryKeyValue]);
+
+        return array_map(fn ($row) => (string) $row['related_id'], $stmt->fetchAll());
+    }
+
+    /**
+     * Reemplaza las asociaciones de $primaryKeyValue en la tabla pivote por
+     * $selectedValues (borra todas las existentes y vuelve a insertar).
+     */
+    public function syncManyToMany(ManyToMany $relation, mixed $primaryKeyValue, array $selectedValues): void
+    {
+        $pivotQ = $this->connection->quoteIdentifier($relation->pivotTable);
+        $foreignQ = $this->connection->quoteIdentifier($relation->foreignKey);
+        $localQ = $this->connection->quoteIdentifier($relation->localKey);
+
+        $delete = $this->connection->pdo()->prepare("DELETE FROM {$pivotQ} WHERE {$localQ} = :id");
+        $delete->execute(['id' => $primaryKeyValue]);
+
+        if ($selectedValues === []) {
+            return;
+        }
+
+        $insert = $this->connection->pdo()->prepare("INSERT INTO {$pivotQ} ({$localQ}, {$foreignQ}) VALUES (:id, :related)");
+        foreach (array_unique($selectedValues) as $value) {
+            $insert->execute(['id' => $primaryKeyValue, 'related' => $value]);
+        }
+    }
+
+    /** Limpia las asociaciones de $primaryKeyValue antes de eliminar el registro principal (evita filas huerfanas en el pivote). */
+    public function deleteManyToManyFor(ManyToMany $relation, mixed $primaryKeyValue): void
+    {
+        $pivotQ = $this->connection->quoteIdentifier($relation->pivotTable);
+        $localQ = $this->connection->quoteIdentifier($relation->localKey);
+
+        $stmt = $this->connection->pdo()->prepare("DELETE FROM {$pivotQ} WHERE {$localQ} = :id");
+        $stmt->execute(['id' => $primaryKeyValue]);
     }
 
     /**

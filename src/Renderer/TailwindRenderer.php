@@ -564,8 +564,12 @@ class TailwindRenderer
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions columna => opciones del select
      * @param array<string, string[]> $errors columna => mensajes de error
      */
-    /** @param string[]|null $fieldsWhitelist si no es null, solo estas columnas aparecen en el formulario */
-    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = '', ?array $fieldsWhitelist = null): string
+    /**
+     * @param string[]|null $fieldsWhitelist si no es null, solo estas columnas aparecen en el formulario
+     * @param array<int, array{name: string, label: string, options: array<int, array{value: mixed, label: string}>, selected: string[], inputType: string}> $manyToMany
+     *   relaciones muchos-a-muchos, renderizadas como multiselect adicional (ver Crud\ManyToMany)
+     */
+    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = '', ?array $fieldsWhitelist = null, array $manyToMany = []): string
     {
         $t = $this->translator;
         $pk = $schema->primaryKey();
@@ -589,6 +593,10 @@ class TailwindRenderer
                 $referenceOptions[$column->name] ?? [],
                 $errors[$column->name] ?? [],
             );
+        }
+
+        foreach ($manyToMany as $relation) {
+            $fields .= $this->renderManyToManyField($relation);
         }
 
         $csrfField = $csrfToken !== '' ? '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">' : '';
@@ -617,7 +625,10 @@ class TailwindRenderer
      * una pestana nueva (renderPrintDocument via ?action=print).
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions
      */
-    public function renderView(TableSchema $schema, array $values, string $baseUrl, string $id, array $referenceOptions = []): string
+    /**
+     * @param array<int, array{label: string, values: string[]}> $manyToMany relaciones muchos-a-muchos ya resueltas a sus labels
+     */
+    public function renderView(TableSchema $schema, array $values, string $baseUrl, string $id, array $referenceOptions = [], array $manyToMany = []): string
     {
         $t = $this->translator;
 
@@ -638,6 +649,14 @@ class TailwindRenderer
             $rows .= '<div class="py-2 border-b border-gray-100">'
                 . '<dt class="text-xs font-semibold uppercase text-gray-500">' . $this->e($column->label) . '</dt>'
                 . '<dd class="text-sm text-gray-900 mt-0.5">' . $this->e($displayValue !== '' ? $displayValue : '—') . '</dd>'
+                . '</div>';
+        }
+
+        foreach ($manyToMany as $relation) {
+            $displayValue = $relation['values'] === [] ? '—' : implode(', ', $relation['values']);
+            $rows .= '<div class="py-2 border-b border-gray-100">'
+                . '<dt class="text-xs font-semibold uppercase text-gray-500">' . $this->e($relation['label']) . '</dt>'
+                . '<dd class="text-sm text-gray-900 mt-0.5">' . $this->e($displayValue) . '</dd>'
                 . '</div>';
         }
 
@@ -712,6 +731,23 @@ class TailwindRenderer
      *   (si $column->reference !== null vienen de la tabla referenciada; si no, de $column->options)
      * @param string[] $errorMessages
      */
+    /**
+     * @param array{name: string, label: string, options: array<int, array{value: mixed, label: string}>, selected: string[], inputType: string} $relation
+     */
+    private function renderManyToManyField(array $relation): string
+    {
+        $name = 'm2m_' . $this->e($relation['name']);
+        $label = '<label class="block text-sm font-medium text-gray-700 mb-1">' . $this->e($relation['label']) . '</label>';
+        $selectedCsv = implode(',', $relation['selected']);
+        $class = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm';
+
+        $input = FieldType::strategy($relation['inputType']) === FieldType::STRATEGY_MULTISELECT_SEARCHABLE
+            ? $this->renderMultiselectSearchable($name, $selectedCsv, $relation['options'])
+            : $this->renderMultiselect($name, $selectedCsv, $relation['options'], $class);
+
+        return '<div>' . $label . $input . '</div>';
+    }
+
     private function renderField(Column $column, string $value, array $options = [], array $errorMessages = []): string
     {
         $strategy = FieldType::strategy($column->inputType ?? '');

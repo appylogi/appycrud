@@ -19,7 +19,7 @@ class Column
         public bool $hidden = false,
         public bool $readOnly = false,
         public ?string $inputType = null,
-        /** @var array{table: string, column: string, label?: string}|null */
+        /** @var array{table: string, column: string, label?: string, conditions?: \Appylogi\AppyCrud\Crud\Condition[]}|null */
         public ?array $reference = null,
         /** @var string[] reglas de validacion tipo 'required', 'max:100', 'email', etc. */
         public array $rules = [],
