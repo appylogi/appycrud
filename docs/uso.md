@@ -79,6 +79,7 @@ Si la validación falla, AppyCrud responde con HTTP 422 y re-renderiza el formul
 | `relational_native` | `<select>` poblado desde otra tabla | Es lo que ya se genera automáticamente para una FK; este nombre es explícito por si prefieres declararlo así. |
 | `multiselect_native` | `<select multiple>` | Se guarda como texto separado por comas en una sola columna (no arma una tabla de unión). |
 | `multiselect_searchable` | checkboxes + filtro de texto | Mismo almacenamiento (CSV) que `multiselect_native`. |
+| `richtext` | editor de texto enriquecido | `<div contenteditable>` + barra de herramientas (negrita/itálica/subrayado/listas), vanilla JS. Ver [Editor de texto enriquecido](#editor-de-texto-enriquecido-richtext). |
 
 ### Opciones estáticas (`dropdown`/`enum`/`multiselect`)
 
@@ -119,12 +120,37 @@ Cómo funciona:
 
 - El archivo se guarda con un **nombre aleatorio** (no el original) dentro de `uploadDir`, y ese nombre es lo que se guarda en la columna. Esto evita colisiones entre archivos con el mismo nombre y evita que alguien adivine o controle el nombre del archivo en el servidor.
 - Las extensiones potencialmente ejecutables (`.php`, `.phtml`, `.cgi`, `.py`, `.sh`, `.asp`, `.jsp`, etc.) se descartan y se reemplazan por `.bin`, sin importar qué extensión traiga el archivo original — una defensa extra por si `uploadDir` terminara siendo accesible por HTTP con ejecución de scripts habilitada.
-- Un `<input type="file">` nunca se puede prellenar por seguridad del navegador. Si al editar no seleccionas un archivo nuevo, AppyCrud **conserva el archivo ya guardado** — no lo borra ni lo deja vacío.
+- Un `<input type="file">` nunca se puede prellenar por seguridad del navegador. Si al editar no seleccionas un archivo nuevo, AppyCrud **conserva el archivo ya guardado** — no lo borra ni lo deja vacío. Si subes uno nuevo, el archivo anterior se borra del disco automáticamente (evita huérfanos).
 - El formulario agrega automáticamente `enctype="multipart/form-data"` en cuanto detecta al menos un campo `file`.
 
 **Importante — `uploadDir` no debería ser accesible directamente por HTTP con ejecución de scripts habilitada.** AppyCrud ya neutraliza extensiones peligrosas, pero esa es una defensa adicional, no un reemplazo de una configuración de servidor correcta (por ejemplo, un `.htaccess` con `php_flag engine off` en esa carpeta, o guardarla fuera del docroot y servirla mediante un script intermedio).
 
-**Esta versión no borra el archivo físico cuando se elimina el registro** (evita pérdida de datos si el archivo se reutiliza en otro lado); si quieres ese comportamiento, bórralo tú mismo desde un hook `afterDelete` (ver [Hooks](#hooks-antesdespués-de-las-acciones)).
+#### Quitar el archivo adjunto
+
+Al editar un registro que ya tiene un archivo, el formulario muestra una casilla **"Quitar archivo actual"** junto al nombre del archivo. Si la marcas (y no seleccionas un archivo nuevo), AppyCrud borra el archivo del disco y deja la columna en `NULL` — sin necesidad de eliminar el registro completo.
+
+Además, por default, **al eliminar el registro completo también se borra su archivo físico del disco** (columnas `file`). Si prefieres conservar los archivos aunque se borre la fila (por ejemplo porque se reutilizan en otro lado), desactívalo con:
+
+```php
+'deleteFilesOnDelete' => false,
+```
+
+### Editor de texto enriquecido (`richtext`)
+
+```php
+$config = new TableConfig([
+    'notas' => ['inputType' => 'richtext'],
+]);
+```
+
+No requiere ninguna opción adicional (a diferencia de `file`, que necesita `uploadDir`). Cómo funciona:
+
+- El editor es un `<div contenteditable>` con una barra de herramientas mínima: **negrita, itálica, subrayado, lista con viñetas, lista numerada**. Todo con `document.execCommand()` — vanilla JS, sin ningún editor de terceros (TinyMCE, Quill, etc.) ni CDN.
+- **El HTML se sanitiza siempre al guardar** (`Crud\HtmlSanitizer`, basado únicamente en `DOMDocument` — sin dependencias externas). Solo sobreviven las etiquetas `p`, `div`, `br`, `b`, `strong`, `i`, `em`, `u`, `ul`, `ol`, `li`, `a`; cualquier otra etiqueta se elimina (conservando su texto), y `<script>`/`<style>` se descartan por completo (ni siquiera queda su texto). En `<a>` solo sobrevive `href`, y solo si su esquema es `http`, `https`, `mailto` o es una ruta relativa — un `href="javascript:..."` se elimina.
+- En el **listado**, se muestra una vista previa en texto plano (sin etiquetas, truncada) — el HTML completo compitiendo por espacio en una tabla de varias columnas no es legible. En la **vista de solo lectura** y al **editar**, se muestra el HTML ya formateado (negrita, listas, etc. se ven como tales, no como texto con corchetes).
+- En las **exportaciones** (CSV/Excel/Markdown) también se exporta como texto plano (sin etiquetas), por la misma razón que en el listado.
+
+**Por qué importa la sanitización:** el valor de un campo `richtext` se renderiza como HTML real (no escapado) en la vista — es lo que permite que la negrita/las listas se vean formateadas. Sin sanitizar, esto sería una vía directa de XSS almacenado (cualquiera que edite el registro podría inyectar `<script>` o atributos `on*`). La sanitización corre **siempre** al guardar (crear y editar), sin importar si el HTML vino del editor de AppyCrud o de otro lado (ej. una integración que llene el campo por su cuenta).
 
 ## Relaciones (llaves foráneas)
 
@@ -291,7 +317,8 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `softDeleteColumn` | `null` | Obligatorio si `deleteMode` es `SOFT`. Debe ser una columna existente. |
 | `export` | `true` | Menú de exportar (CSV / Excel / Markdown). |
 | `bulkDelete` | `true` | Checkboxes + borrado masivo (respeta `deleteMode`). |
-| `filters` | `true` | Fila de filtros por columna. |
+| `filters` | `true` | Fila de filtros por columna + constructor avanzado AND/OR. |
+| `filterableFields` | `null` | Restringe qué columnas tienen filtro simple y aparecen en el constructor avanzado; `null` = todas las visibles. Ver [Filtros](#filtros-elegir-columnas-y-constructor-avanzado-andor). |
 | `search` | `true` | Búsqueda global sobre las columnas de texto. |
 | `view` | `true` | Acción "Ver" (solo lectura). |
 | `print` | `true` | Imprimir un registro o el listado completo. |
@@ -309,6 +336,7 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `rowActions` | `[]` | `RowAction[]`, ver [Acciones custom por fila](#acciones-custom-por-fila). |
 | `uploadDir` | `null` | Ruta absoluta para archivos subidos; obligatorio si hay algún campo `file`. |
 | `uploadUrlPrefix` | `null` | URL pública para el link de descarga en listado/vista; sin esto, solo se muestra el nombre del archivo. |
+| `deleteFilesOnDelete` | `true` | Borra del disco los archivos (columnas `file`) del registro cuando se elimina la fila completa. |
 
 Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero siguen siendo consultas al servidor — no se pierden resultados en tablas con miles de filas y paginación, a diferencia de un filtro puramente en JavaScript sobre lo ya cargado en pantalla.
 
@@ -324,6 +352,26 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
     'defaultOrderDir' => 'DESC',
 ]);
 ```
+
+## Filtros: elegir columnas y constructor avanzado (AND/OR)
+
+Por default, el filtro simple (una fila con un input por columna, arriba del listado) muestra **todas las columnas visibles**. En tablas anchas eso satura la pantalla; `filterableFields` limita cuáles aparecen — y también limita cuáles están disponibles en el constructor avanzado (ver abajo):
+
+```php
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'filterableFields' => ['titulo', 'categoria_id', 'prioridad'],
+]);
+```
+
+Sin esta opción (`null`, el default), se muestran todas las columnas visibles, igual que antes.
+
+### Constructor de filtro avanzado (AND/OR)
+
+Junto al filtro simple hay un botón **"Filtro avanzado"** que abre un panel con filas dinámicas: cada fila es `campo` + `operador` + `valor`, y (salvo la primera) un selector **Y/O** que la conecta con la fila anterior. Las filas se combinan **de izquierda a derecha** — por ejemplo, con 3 filas A, B, C conectadas por Y y O respectivamente, el resultado es `(A Y B) O C`, no la precedencia habitual de SQL (donde `Y` siempre liga más fuerte que `O`). Esto es intencional: en un constructor visual el usuario espera que el orden en que agrega las condiciones sea el orden en que se combinan.
+
+Operadores disponibles: es igual a, es distinto de, contiene, no contiene, mayor que, mayor o igual que, menor que, menor o igual que, es vacío, no es vacío.
+
+No requiere ninguna opción adicional — se activa junto con `filters` (`true` por default). Las filas se pueden agregar/quitar dinámicamente (JS vanilla, sin librerías); al aplicar, se combinan con el filtro simple y la búsqueda global en el mismo request (AJAX, sin recargar la página). El estado del filtro avanzado también viaja en los links de ordenar por columna y exportar, para no perderlo al navegar.
 
 ## Restringir por WHERE (scoping)
 

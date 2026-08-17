@@ -84,7 +84,7 @@ class CrudRepository
         return [$sqlParts, $params];
     }
 
-    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = [], string $search = ''): array
+    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = [], string $search = '', array $advancedFilters = []): array
     {
         $page = max(1, $page);
         $offset = ($page - 1) * $perPage;
@@ -96,7 +96,7 @@ class CrudRepository
             $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($orderBy) . ' ' . $dir;
         }
 
-        [$whereSql, $params] = $this->buildWhereClause($filters, $search);
+        [$whereSql, $params] = $this->buildWhereClause($filters, $search, $advancedFilters);
 
         $sql = "SELECT * FROM {$table} {$whereSql} {$orderSql} LIMIT :limit OFFSET :offset";
         $stmt = $this->connection->pdo()->prepare($sql);
@@ -129,7 +129,7 @@ class CrudRepository
      * resto, LIKE.
      * @return array{0: string, 1: array<string, mixed>}
      */
-    private function buildWhereClause(array $filters, string $search = ''): array
+    private function buildWhereClause(array $filters, string $search = '', array $advancedFilters = []): array
     {
         [$baseSql, $params] = $this->baseConditionsSql();
         $conditions = $baseSql;
@@ -180,21 +180,91 @@ class CrudRepository
             }
         }
 
+        [$advancedSql, $advancedParams] = $this->buildAdvancedFilterSql($advancedFilters);
+        if ($advancedSql !== null) {
+            $conditions[] = $advancedSql;
+            $params += $advancedParams;
+        }
+
         $sql = $conditions === [] ? '' : 'WHERE ' . implode(' AND ', $conditions);
 
         return [$sql, $params];
+    }
+
+    /** Operadores validos del constructor de filtros avanzado -> fragmento SQL. Los que no llevan valor (IS [NOT] NULL) se marcan aparte. */
+    private const ADVANCED_FILTER_OPERATORS = [
+        'eq' => '=',
+        'neq' => '!=',
+        'contains' => 'LIKE',
+        'not_contains' => 'NOT LIKE',
+        'gt' => '>',
+        'gte' => '>=',
+        'lt' => '<',
+        'lte' => '<=',
+        'is_null' => 'IS NULL',
+        'is_not_null' => 'IS NOT NULL',
+    ];
+
+    /**
+     * Combina las filas del constructor visual (campo + operador + valor),
+     * cada una precedida por un conector AND/OR respecto de la anterior, de
+     * IZQUIERDA A DERECHA — se agrupan explicitamente con parentesis en ese
+     * orden para que el resultado no dependa de la precedencia normal de
+     * AND/OR en SQL (donde AND siempre liga mas fuerte que OR).
+     * @param array<int, array{field: string, op: string, value: mixed, conn: string}> $rows
+     * @return array{0: ?string, 1: array<string, mixed>}
+     */
+    private function buildAdvancedFilterSql(array $rows): array
+    {
+        $acc = null;
+        $params = [];
+        $i = 0;
+
+        foreach ($rows as $row) {
+            $field = (string) ($row['field'] ?? '');
+            $op = (string) ($row['op'] ?? '');
+            $value = $row['value'] ?? '';
+            $connector = strtoupper((string) ($row['conn'] ?? 'AND')) === 'OR' ? 'OR' : 'AND';
+
+            $column = $this->schema->column($field);
+            $sqlOperator = self::ADVANCED_FILTER_OPERATORS[$op] ?? null;
+
+            if ($column === null || $sqlOperator === null) {
+                continue;
+            }
+
+            $quotedColumn = $this->connection->quoteIdentifier($field);
+            $isNullCheck = $op === 'is_null' || $op === 'is_not_null';
+
+            if (!$isNullCheck && ($value === '' || $value === null)) {
+                continue;
+            }
+
+            if ($isNullCheck) {
+                $fragment = "{$quotedColumn} {$sqlOperator}";
+            } else {
+                $paramKey = ':advf_' . $i;
+                $fragment = "{$quotedColumn} {$sqlOperator} {$paramKey}";
+                $params[$paramKey] = $op === 'contains' || $op === 'not_contains' ? '%' . $value . '%' : $value;
+            }
+
+            $acc = $acc === null ? $fragment : "({$acc} {$connector} {$fragment})";
+            $i++;
+        }
+
+        return [$acc, $params];
     }
 
     /**
      * Exporta las filas (respetando filtros y busqueda activos) a CSV,
      * escribiendo por bloques al stream $output en vez de acumular todo en memoria.
      */
-    public function exportCsv($output, array $filters = [], int $chunkSize = 1000, string $search = ''): void
+    public function exportCsv($output, array $filters = [], int $chunkSize = 1000, string $search = '', array $advancedFilters = []): void
     {
         $columns = $this->schema->visibleColumns();
         fputcsv($output, array_map(fn (Column $c) => $c->label, $columns));
 
-        foreach ($this->exportRows($filters, $search, $chunkSize) as $displayRow) {
+        foreach ($this->exportRows($filters, $search, $chunkSize, $advancedFilters) as $displayRow) {
             fputcsv($output, array_values($displayRow));
         }
     }
@@ -204,14 +274,14 @@ class CrudRepository
      * Excel abre HTML valido guardado con extension .xls sin depender de
      * ninguna libreria externa (PhpSpreadsheet, etc.).
      */
-    public function exportXls($output, array $filters = [], int $chunkSize = 1000, string $search = ''): void
+    public function exportXls($output, array $filters = [], int $chunkSize = 1000, string $search = '', array $advancedFilters = []): void
     {
         $columns = $this->schema->visibleColumns();
 
         fwrite($output, '<html><head><meta charset="UTF-8"></head><body><table border="1">');
         fwrite($output, '<tr>' . implode('', array_map(fn (Column $c) => '<th>' . htmlspecialchars($c->label, ENT_QUOTES) . '</th>', $columns)) . '</tr>');
 
-        foreach ($this->exportRows($filters, $search, $chunkSize) as $displayRow) {
+        foreach ($this->exportRows($filters, $search, $chunkSize, $advancedFilters) as $displayRow) {
             fwrite($output, '<tr>' . implode('', array_map(fn ($v) => '<td>' . htmlspecialchars((string) $v, ENT_QUOTES) . '</td>', $displayRow)) . '</tr>');
         }
 
@@ -221,7 +291,7 @@ class CrudRepository
     /**
      * Exporta a una tabla en formato Markdown.
      */
-    public function exportMarkdown($output, array $filters = [], int $chunkSize = 1000, string $search = ''): void
+    public function exportMarkdown($output, array $filters = [], int $chunkSize = 1000, string $search = '', array $advancedFilters = []): void
     {
         $columns = $this->schema->visibleColumns();
         $escape = fn ($v) => str_replace('|', '\\|', (string) $v);
@@ -229,7 +299,7 @@ class CrudRepository
         fwrite($output, '| ' . implode(' | ', array_map(fn (Column $c) => $escape($c->label), $columns)) . " |\n");
         fwrite($output, '| ' . implode(' | ', array_fill(0, count($columns), '---')) . " |\n");
 
-        foreach ($this->exportRows($filters, $search, $chunkSize) as $displayRow) {
+        foreach ($this->exportRows($filters, $search, $chunkSize, $advancedFilters) as $displayRow) {
             fwrite($output, '| ' . implode(' | ', array_map($escape, $displayRow)) . " |\n");
         }
     }
@@ -240,10 +310,10 @@ class CrudRepository
      * acumular el resultado completo en memoria.
      * @return iterable<int, array<string, mixed>>
      */
-    private function exportRows(array $filters, string $search, int $chunkSize): iterable
+    private function exportRows(array $filters, string $search, int $chunkSize, array $advancedFilters = []): iterable
     {
         $table = $this->connection->quoteIdentifier($this->schema->table);
-        [$whereSql, $params] = $this->buildWhereClause($filters, $search);
+        [$whereSql, $params] = $this->buildWhereClause($filters, $search, $advancedFilters);
         $columns = $this->schema->visibleColumns();
         $referenceLabels = $this->buildReferenceLabels($columns);
 
@@ -268,6 +338,13 @@ class CrudRepository
                 $displayRow = [];
                 foreach ($columns as $column) {
                     $rawValue = (string) ($row[$column->name] ?? '');
+
+                    if (FieldType::isRichText($column->inputType ?? '')) {
+                        // Exportar (CSV/Excel/Markdown) es texto plano; el HTML solo tiene sentido en pantalla (listado/vista).
+                        $displayRow[$column->name] = trim(preg_replace('/\s+/', ' ', strip_tags($rawValue)));
+                        continue;
+                    }
+
                     $displayRow[$column->name] = $column->reference !== null
                         ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                         : $rawValue;

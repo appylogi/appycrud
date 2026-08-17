@@ -7,6 +7,7 @@ use Appylogi\AppyCrud\Crud\Csrf;
 use Appylogi\AppyCrud\Crud\CrudRepository;
 use Appylogi\AppyCrud\Crud\DeleteMode;
 use Appylogi\AppyCrud\Crud\HookAbortException;
+use Appylogi\AppyCrud\Crud\HtmlSanitizer;
 use Appylogi\AppyCrud\Crud\ManyToMany;
 use Appylogi\AppyCrud\Crud\RowAction;
 use Appylogi\AppyCrud\Crud\Validator;
@@ -97,6 +98,9 @@ class AppyCrud
     private array $rowActions;
     private ?string $uploadDir;
     private ?string $uploadUrlPrefix;
+    private bool $deleteFilesOnDelete;
+    /** @var string[]|null */
+    private ?array $filterableFields;
 
     public function __construct(
         private Connection $connection,
@@ -153,6 +157,8 @@ class AppyCrud
 
         $this->uploadDir = $options['uploadDir'] ?? null;
         $this->uploadUrlPrefix = $options['uploadUrlPrefix'] ?? null;
+        $this->deleteFilesOnDelete = $options['deleteFilesOnDelete'] ?? true;
+        $this->filterableFields = $options['filterableFields'] ?? null;
 
         $hasFileColumn = false;
         foreach ($this->schema->columns() as $column) {
@@ -311,6 +317,20 @@ class AppyCrud
         return $selections;
     }
 
+    /** @return array<string, string> 'remove_{columna}' => '1' por cada columna 'file' cuya casilla de quitar vino marcada */
+    private function extractRemoveFileFlags(array $post): array
+    {
+        $flags = [];
+
+        foreach ($this->schema->columns() as $column) {
+            if (FieldType::isFile($column->inputType ?? '') && !empty($post['remove_' . $column->name])) {
+                $flags['remove_' . $column->name] = '1';
+            }
+        }
+
+        return $flags;
+    }
+
     private function syncManyToMany(mixed $id, array $selections): void
     {
         foreach ($this->manyToMany as $name => $relation) {
@@ -320,9 +340,9 @@ class AppyCrud
 
     private function renderList(array $get, string $baseUrl): string
     {
-        [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
+        [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix);
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters);
     }
 
     /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */
@@ -346,18 +366,64 @@ class AppyCrud
         ], $this->rowActions);
     }
 
-    /** @return array{0: array, 1: array<string,string>, 2: string, 3: string, 4: string} */
+    /** @return array{0: array, 1: array<string,string>, 2: string, 3: string, 4: string, 5: array<int, array{field: string, op: string, value: mixed, conn: string}>} */
     private function paginateFromRequest(array $get): array
     {
         $page = max(1, (int) ($get['page'] ?? 1));
-        $filters = $this->features['filters'] ? ($get['filter'] ?? []) : [];
+        $filters = $this->features['filters'] ? $this->restrictToFields($get['filter'] ?? [], $this->allowedFilterFields()) : [];
         $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
         $orderBy = (string) ($get['orderBy'] ?? $this->defaultOrderBy);
         $orderDir = (string) ($get['orderDir'] ?? $this->defaultOrderDir);
+        $advancedFilters = $this->features['filters'] ? $this->extractAdvancedFilters($get) : [];
 
-        $pagination = $this->repository->paginate($page, 20, $orderBy, $orderDir, $filters, $search);
+        $pagination = $this->repository->paginate($page, 20, $orderBy, $orderDir, $filters, $search, $advancedFilters);
 
-        return [$pagination, $filters, $search, $orderBy, $orderDir];
+        return [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters];
+    }
+
+    /** @return string[] nombres de columna permitidos en el filtro simple y en el constructor avanzado */
+    private function allowedFilterFields(): array
+    {
+        if ($this->filterableFields !== null) {
+            return $this->filterableFields;
+        }
+
+        return array_map(fn ($c) => $c->name, $this->schema->visibleColumns());
+    }
+
+    /**
+     * Parsea las filas del constructor de filtro avanzado desde el GET
+     * (arrays paralelos af_field[]/af_op[]/af_value[]/af_conn[], alineados
+     * por posicion — cada fila del panel envia sus 4 inputs en ese orden).
+     * Descarta filas cuyo campo no este en allowedFilterFields() (defensa
+     * extra ademas de la que ya hace CrudRepository con Column::name real).
+     * @return array<int, array{field: string, op: string, value: mixed, conn: string}>
+     */
+    private function extractAdvancedFilters(array $get): array
+    {
+        $fields = (array) ($get['af_field'] ?? []);
+        $ops = (array) ($get['af_op'] ?? []);
+        $values = (array) ($get['af_value'] ?? []);
+        $conns = (array) ($get['af_conn'] ?? []);
+        $allowed = $this->allowedFilterFields();
+
+        $rows = [];
+        foreach ($fields as $i => $field) {
+            $field = (string) $field;
+
+            if ($field === '' || !in_array($field, $allowed, true)) {
+                continue;
+            }
+
+            $rows[] = [
+                'field' => $field,
+                'op' => (string) ($ops[$i] ?? ''),
+                'value' => $values[$i] ?? '',
+                'conn' => (string) ($conns[$i] ?? 'AND'),
+            ];
+        }
+
+        return $rows;
     }
 
     private function handleStore(array $post, string $baseUrl, array $files = []): string
@@ -369,7 +435,7 @@ class AppyCrud
             return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
 
-        $post = $this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields));
+        $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields)));
         $post = $this->processFileUploads($files, $post, null);
         $errors = Validator::validate($this->schema, $post);
 
@@ -409,8 +475,9 @@ class AppyCrud
         }
 
         $existingRow = $this->repository->find($id);
-        $post = $this->normalizeMultiselectFields($this->restrictToFields($post, $this->editFields));
-        $post = $this->processFileUploads($files, $post, $existingRow);
+        $removeFileFlags = $this->extractRemoveFileFlags($post);
+        $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->editFields)));
+        $post = $this->processFileUploads($files, $post + $removeFileFlags, $existingRow);
         $values = $pk !== null ? $post + [$pk->name => $id] : $post;
         $errors = Validator::validate($this->schema, $post);
 
@@ -442,6 +509,7 @@ class AppyCrud
     private function handleDelete(mixed $id, string $baseUrl, array $post = []): string
     {
         if ($this->verifyCsrf($post) && $this->runBeforeDelete($id)) {
+            $this->deleteUploadedFilesFor($id);
             $this->deleteManyToManyFor($id);
             $this->repository->delete($id);
             $this->runAfterDelete($id);
@@ -457,6 +525,7 @@ class AppyCrud
         if ($this->verifyCsrf($post) && is_array($ids) && $ids !== []) {
             foreach ($ids as $id) {
                 if ($this->runBeforeDelete($id)) {
+                    $this->deleteUploadedFilesFor($id);
                     $this->deleteManyToManyFor($id);
                     $this->repository->delete($id);
                     $this->runAfterDelete($id);
@@ -529,6 +598,23 @@ class AppyCrud
         return $data;
     }
 
+    /**
+     * Sanitiza los campos 'richtext' antes de guardar (ver HtmlSanitizer) —
+     * nunca se persiste el HTML crudo que mando el navegador. Corre antes de
+     * Validator::validate() para que 'required'/'max' evaluen el valor ya
+     * sanitizado (el que realmente se va a guardar).
+     */
+    private function normalizeRichTextFields(array $data): array
+    {
+        foreach ($this->schema->columns() as $column) {
+            if (isset($data[$column->name]) && FieldType::isRichText($column->inputType ?? '')) {
+                $data[$column->name] = HtmlSanitizer::sanitize((string) $data[$column->name]);
+            }
+        }
+
+        return $data;
+    }
+
     /** Extensiones que nunca se conservan, aunque el archivo original las traiga (riesgo de ejecutar codigo si uploadDir es accesible por HTTP). */
     private const DANGEROUS_UPLOAD_EXTENSIONS = ['php', 'php3', 'php4', 'php5', 'php7', 'phtml', 'phar', 'pht', 'cgi', 'pl', 'py', 'sh', 'exe', 'asp', 'aspx', 'jsp', 'htaccess', 'config'];
 
@@ -538,6 +624,8 @@ class AppyCrud
      * ese nombre en $data. Si no se subio uno nuevo, conserva el valor ya
      * existente en $existingRow (editar sin re-subir no borra el archivo) —
      * en creacion ($existingRow === null), simplemente no se setea la columna.
+     * Si vino marcada la casilla 'remove_{columna}' (y no se subio un
+     * reemplazo), borra el archivo fisico del disco y limpia la columna.
      */
     private function processFileUploads(array $files, array $data, ?array $existingRow): array
     {
@@ -548,8 +636,16 @@ class AppyCrud
 
             $file = $files[$column->name] ?? null;
             $hasNewFile = is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+            $removeRequested = !empty($data['remove_' . $column->name]);
+            unset($data['remove_' . $column->name]);
 
             if (!$hasNewFile) {
+                if ($removeRequested && $existingRow !== null && isset($existingRow[$column->name])) {
+                    $this->deleteUploadedFile($existingRow[$column->name]);
+                    $data[$column->name] = null;
+                    continue;
+                }
+
                 if ($existingRow !== null && isset($existingRow[$column->name])) {
                     $data[$column->name] = $existingRow[$column->name];
                 } else {
@@ -572,6 +668,9 @@ class AppyCrud
             $destination = rtrim($this->uploadDir, '/\\') . DIRECTORY_SEPARATOR . $safeName;
 
             if (move_uploaded_file($file['tmp_name'], $destination)) {
+                if ($existingRow !== null && isset($existingRow[$column->name]) && $existingRow[$column->name] !== $safeName) {
+                    $this->deleteUploadedFile($existingRow[$column->name]);
+                }
                 $data[$column->name] = $safeName;
             } else {
                 unset($data[$column->name]);
@@ -581,10 +680,45 @@ class AppyCrud
         return $data;
     }
 
+    /** Borra un archivo previamente subido (best-effort: si ya no existe o falla, no interrumpe el flujo). */
+    private function deleteUploadedFile(?string $fileName): void
+    {
+        if ($fileName === null || $fileName === '' || $this->uploadDir === null) {
+            return;
+        }
+
+        $path = rtrim($this->uploadDir, '/\\') . DIRECTORY_SEPARATOR . $fileName;
+
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    /** Borra del disco los archivos de las columnas 'file' del registro, si 'deleteFilesOnDelete' esta activo. */
+    private function deleteUploadedFilesFor(mixed $id): void
+    {
+        if (!$this->deleteFilesOnDelete || $this->uploadDir === null) {
+            return;
+        }
+
+        $row = $this->repository->find($id);
+
+        if ($row === null) {
+            return;
+        }
+
+        foreach ($this->schema->columns() as $column) {
+            if (FieldType::isFile($column->inputType ?? '') && !empty($row[$column->name])) {
+                $this->deleteUploadedFile($row[$column->name]);
+            }
+        }
+    }
+
     private function handleExport(array $get): never
     {
-        $filters = $this->features['filters'] ? ($get['filter'] ?? []) : [];
+        $filters = $this->features['filters'] ? $this->restrictToFields($get['filter'] ?? [], $this->allowedFilterFields()) : [];
         $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
+        $advancedFilters = $this->features['filters'] ? $this->extractAdvancedFilters($get) : [];
         $format = $get['format'] ?? 'csv';
 
         [$mime, $extension] = match ($format) {
@@ -599,11 +733,11 @@ class AppyCrud
         $output = fopen('php://output', 'w');
 
         match ($format) {
-            'xls' => $this->repository->exportXls($output, $filters, 1000, $search),
-            'md' => $this->repository->exportMarkdown($output, $filters, 1000, $search),
-            default => (function () use ($output, $filters, $search) {
+            'xls' => $this->repository->exportXls($output, $filters, 1000, $search, $advancedFilters),
+            'md' => $this->repository->exportMarkdown($output, $filters, 1000, $search, $advancedFilters),
+            default => (function () use ($output, $filters, $search, $advancedFilters) {
                 fwrite($output, "\xEF\xBB\xBF");
-                $this->repository->exportCsv($output, $filters, 1000, $search);
+                $this->repository->exportCsv($output, $filters, 1000, $search, $advancedFilters);
             })(),
         };
 

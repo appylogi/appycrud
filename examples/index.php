@@ -61,6 +61,7 @@ if ($isNew) {
         prioridad VARCHAR(10) DEFAULT "media",
         etiquetas VARCHAR(100),
         adjunto VARCHAR(255),
+        notas TEXT,
         completada INTEGER NOT NULL DEFAULT 0,
         archivada INTEGER NOT NULL DEFAULT 0,
         creada_en TEXT DEFAULT CURRENT_TIMESTAMP
@@ -100,6 +101,9 @@ $config = new TableConfig([
         ['value' => 'viaje', 'label' => 'Viaje'],
     ]],
     'adjunto' => ['label' => 'Adjunto', 'inputType' => 'file'],
+    // 'richtext': editor vanilla (negrita/italica/subrayado/listas), sanitizado con
+    // Crud\HtmlSanitizer al guardar (whitelist de etiquetas, sin scripts/atributos peligrosos).
+    'notas' => ['label' => 'Notas', 'inputType' => 'richtext'],
 ]);
 
 $locale = $_GET['lang'] ?? 'es';
@@ -117,6 +121,9 @@ $options = [
     'export' => true,
     'bulkDelete' => true,
     'filters' => true,
+    // Limita las columnas con filtro simple + las disponibles en el constructor
+    // avanzado (util en tablas anchas). Sin esta opcion, se muestran todas las visibles.
+    'filterableFields' => ['titulo', 'categoria_id', 'prioridad', 'completada'],
     'view' => true,
     'print' => true,
     'clone' => true,
@@ -162,6 +169,11 @@ $options = [
     // si se indica, el listado/vista muestran un link de descarga en vez de solo el nombre.
     'uploadDir' => $uploadDir,
     'uploadUrlPrefix' => '/appycrud/examples/uploads',
+    // Al editar, se puede marcar "Quitar archivo actual" para borrarlo sin eliminar
+    // el registro completo. 'deleteFilesOnDelete' (true por default) borra ademas el
+    // archivo fisico del disco cuando se elimina el registro entero; ponlo en false
+    // si prefieres conservar los archivos aunque se borre la fila.
+    'deleteFilesOnDelete' => true,
     // Accion custom agregada al menu de cada fila (ver Crud\RowAction).
     'rowActions' => [
         new RowAction(

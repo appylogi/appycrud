@@ -13,15 +13,15 @@ Pensado como alternativa libre y descargable a herramientas como [GroceryCRUD](h
 - **Relaciones**: las llaves foráneas se detectan solas y se renderizan como `<select>`, con su label resuelto en listado, vista y exportación.
 - **3 modos de borrado**: preguntar (modal propio, no `confirm()` nativo), directo, o lógico (columna configurable).
 - **Borrado masivo**, **clonar** (parametrizable: excluir columnas, agregar sufijo), **ver** de solo lectura, **imprimir** (registro o listado completo).
-- **Filtro por columna + búsqueda global + orden**, todo por AJAX con debounce (no recarga la página, sigue siendo consulta server-side — no se pierden resultados en tablas grandes con paginación).
+- **Filtro por columna + búsqueda global + orden**, todo por AJAX con debounce (no recarga la página, sigue siendo consulta server-side — no se pierden resultados en tablas grandes con paginación). **Constructor de filtro avanzado** (filas dinámicas combinadas con AND/OR) y `filterableFields` para limitar qué columnas se pueden filtrar en tablas anchas.
 - **Exportar** a CSV, Excel (.xls) y Markdown, respetando los filtros activos.
-- **24 tipos de campo** (`boolean`, `dropdown_search`, `multiselect_native`, `password_toggle`, `relational_native`, etc.) — ver [catálogo completo](docs/uso.md#tipos-de-campo).
+- **25 tipos de campo** (`boolean`, `dropdown_search`, `multiselect_native`, `password_toggle`, `relational_native`, `richtext`, etc.) — ver [catálogo completo](docs/uso.md#tipos-de-campo).
 - **Scoping** vía `where`/`whereIn` (multi-tenant, "solo mis registros") aplicado a listado, exportar, ver, editar y eliminar — no solo cosmético en el listado.
 - **Control de campos**: qué columnas se pueden insertar y cuáles editar, por separado.
 - **Muchos a muchos** vía tabla pivote (`ManyToMany`), sincronizada automáticamente al guardar.
 - **Hooks** antes/después de insert/update/delete, con posibilidad de cancelar la operación.
 - **Acciones custom por fila** (además de Ver/Editar/Clonar/Eliminar), parametrizables.
-- **Carga de archivos**, con nombre aleatorio seguro y conservación del archivo existente al editar sin re-subir.
+- **Carga de archivos**, con nombre aleatorio seguro, conservación del archivo existente al editar sin re-subir, casilla para quitarlo, y borrado físico automático al eliminar el registro.
 - **i18n** (español/inglés incluido, agregar un idioma es un archivo nuevo en `lang/`).
 - **Un solo sistema de diseño** (Tailwind, precompilado) para mantener todo consistente; la arquitectura permite agregar otros temas más adelante.
 

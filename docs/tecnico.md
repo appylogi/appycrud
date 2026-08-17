@@ -14,6 +14,7 @@ AppyCrud                    Punto de entrada; despacha por accion ($_GET['action
 ├── Crud\Condition             Condiciones WHERE (scoping, y filtro de opciones de una FK)
 ├── Crud\ManyToMany            Definicion de una relacion muchos-a-muchos (tabla pivote)
 ├── Crud\Validator             Reglas de validacion (Column::$rules)
+├── Crud\HtmlSanitizer         Sanitiza HTML de campos 'richtext' antes de guardar (whitelist via DOMDocument)
 ├── Crud\Csrf                  Token CSRF por sesion
 ├── Crud\HookAbortException    Cancela un hook 'before*' con un mensaje
 ├── Crud\DeleteMode            Constantes CONFIRM/DIRECT/SOFT
@@ -46,6 +47,25 @@ Ninguna de estas clases conoce `$_SERVER`/`$_SESSION` directamente salvo `Csrf` 
 
 `renderField()` decide de donde vienen las opciones de un `<select>`/checkboxes asi: si `$column->reference !== null` (llave foranea, real o forzada via override), las opciones vienen de la tabla referenciada (`CrudRepository::referenceOptions()`); si no, vienen de `$column->options` (definidas a mano en el override, o autodetectadas para `ENUM` de MySQL).
 
+### Editor de texto enriquecido (`richtext` / `STRATEGY_RICHTEXT`)
+
+`TailwindRenderer::renderRichText()` genera un `<div contenteditable>` + una barra de botones que llaman a `appycrudRichTextExec(editorId, command)` (JS en `renderModalShell()`, una sola vez por pagina), que hace `document.execCommand(command, false, null)` sobre el div enfocado. El valor real que viaja en el submit **no** es el `contenteditable` (los navegadores no envian el contenido de un div en un form) sino un `<input type="hidden">` sincronizado en cada evento `input` del div (`appycrudRichTextSync()`).
+
+**Bug real encontrado y corregido durante el desarrollo:** los botones de la barra (`<button type="button" onclick="...">`) le robaban el foco al `contenteditable` en el `mousedown` que precede al `click`, colapsando la seleccion de texto *antes* de que `appycrudRichTextExec()` alcanzara a ejecutar `document.execCommand()` — el resultado era que la negrita/italica/etc. nunca se aplicaba a nada, silenciosamente (execCommand no lanza error si no hay seleccion, solo no hace nada). Se corrigio agregando `onmousedown="event.preventDefault()"` a cada boton, que evita el cambio de foco y preserva la seleccion activa durante el clic. Se verifico end-to-end en un navegador real (Chromium via MCP): sin el fix, `el.innerHTML` quedaba sin cambios tras click en "Negrita" con texto seleccionado; con el fix, `<b>...</b>` se aplica correctamente y se sincroniza al input oculto.
+
+**Sanitizacion (`Crud\HtmlSanitizer::sanitize()`)** corre en `AppyCrud::normalizeRichTextFields()`, en el mismo punto del pipeline que `normalizeMultiselectFields()` (despues de `restrictToFields()`, antes de `Validator::validate()` — para que las reglas evaluen el valor que realmente se va a guardar). Implementacion: `DOMDocument::loadHTML()` envuelto en `<body>` con `<?xml encoding="UTF-8">` (sin ese prefijo, `DOMDocument` asume Latin-1 y corrompe acentos/eñes), luego un recorrido recursivo:
+
+- Etiquetas en la lista blanca (`ALLOWED_TAGS`) sobreviven; sus atributos se descartan todos salvo `href` en `<a>`, validado con `isSafeUrl()` (sin esquema = relativa/segura; con esquema, debe estar en `ALLOWED_SCHEMES` = `http`/`https`/`mailto` — asi se bloquea `javascript:`).
+- Etiquetas fuera de la lista blanca pero *no* en `STRIP_ENTIRELY_TAGS` se eliminan pero **se preserva su contenido** (sus hijos se re-parentan al nodo padre antes de quitarlas) — un `<img onerror="...">` desaparece pero el texto que lo rodeaba no se pierde.
+- `script`/`style` estan en `STRIP_ENTIRELY_TAGS`: se eliminan **enteros, incluido su texto**. Sin este caso especial, el texto interno de un `<script>alert(1)</script>` sobreviviria como texto plano visible ("alert(1)") tras quitar solo la etiqueta — inofensivo (ya no es codigo ejecutable) pero confuso para el usuario.
+
+No hay ninguna dependencia externa tipo HTMLPurifier — es deliberado, siguiendo la misma filosofia zero-dependencias del resto del proyecto.
+
+**Rendering diferenciado por contexto** (`FieldType::isRichText()` en cada punto):
+
+- Listado (`TailwindRenderer::richTextPreview()`) y exportaciones (`CrudRepository::exportRows()`): `strip_tags()` + colapsar espacios — texto plano, porque el HTML formateado no es legible/util en una celda de tabla angosta o en un CSV.
+- Vista de solo lectura (`renderView()`) y el propio editor al re-abrir para editar: el HTML sanitizado se inyecta **sin escapar** (a diferencia de todos los demas tipos de campo, que pasan por `$this->e()`) — es la unica forma de que la negrita/listas se vean formateadas en vez de como texto con etiquetas literales. Esto es seguro *solo* porque el valor ya paso por `HtmlSanitizer::sanitize()` al guardarse; nunca se sanitiza en el momento de renderizar (seria tarde para los valores ya guardados sin sanitizar de una version anterior, si los hubiera).
+
 ### Multiselect: almacenamiento
 
 `multiselect_native`/`multiselect_searchable` no asumen una tabla de union (relacion muchos-a-muchos); los valores seleccionados se guardan como **texto separado por comas** en una sola columna (`FieldType::isMultiselect()` + `AppyCrud::normalizeMultiselectFields()` hacen el `implode(',', ...)` antes de validar/guardar). Es la opcion mas simple para un CRUD generico de una sola tabla; si tu caso necesita una tabla de union real, no esta cubierto por esta version.
@@ -58,12 +78,23 @@ Toda consulta que filtra filas (listado, exportar, busqueda global) pasa por `bu
 2. El filtro de borrado logico (si `deleteMode` es `SOFT`).
 3. Los filtros por columna que mando el usuario (`$filters`, AND entre si).
 4. La busqueda global (`$search`, OR entre las columnas de texto).
+5. El constructor de filtro avanzado (`$advancedFilters`, ver mas abajo) — se agrega como un solo fragmento adicional, combinado con `AND` respecto a los puntos 1-4.
 
 Las condiciones base (punto 1) tambien se aplican a `find()`, `update()` y `delete()` — no solo al listado — precisamente para que el scoping sea una garantia de seguridad real (un id de otro tenant no matchea el `WHERE`) y no solo un filtro cosmetico de la tabla.
 
 ### `Condition`
 
 Objeto inmutable con `column`, `operator`, `value`. Los operadores `IN`/`NOT IN` generan un placeholder por cada valor del array; un `IN` con un array vacio se traduce a `1 = 0` (no matchea nada) en vez de generar SQL invalido (`IN ()`). La conversion a SQL vive en `CrudRepository::conditionsToSql(array $conditions, string $paramPrefix)`, parametrizada por un prefijo — `baseConditionsSql()` la llama con prefijo `'base'` para el scoping, y `referenceOptions()` con `'refcond_' . $column->name` para las condiciones de una FK puntual, de modo que varios juegos de condiciones puedan combinarse en la misma consulta sin colisionar nombres de parametro.
+
+### Constructor de filtro avanzado (`buildAdvancedFilterSql()`)
+
+Recibe `$advancedFilters` (filas `{field, op, value, conn}`, en el orden en que llegaron) y las combina en un solo fragmento SQL con `fold` de izquierda a derecha: `$acc = $acc === null ? $fragment : "({$acc} {$connector} {$fragment})"`. La agrupacion explicita con parentesis es deliberada — sin ella, SQL aplicaria la precedencia normal (`AND` liga mas fuerte que `OR`) sin importar el orden visual en que el usuario agrego las filas, lo cual no coincide con lo que un constructor visual de filas hace esperar.
+
+`AppyCrud::extractAdvancedFilters()` parsea `$get['af_field']`/`af_op`/`af_value`/`af_conn` (arrays paralelos alineados por posicion, mismo patron que `extractManyToManySelections()`) y descarta cualquier fila cuyo campo no este en `allowedFilterFields()` (== `filterableFields` si se definio, si no todas las columnas visibles) — es la misma whitelist que ya limita el filtro simple por columna. `CrudRepository::buildAdvancedFilterSql()` hace una segunda validacion independiente contra `$this->schema->column($field)` y contra la lista fija `ADVANCED_FILTER_OPERATORS`, ignorando silenciosamente cualquier fila con campo/operador invalido — nunca concatena el nombre de columna o el operador crudos en el SQL, solo los usa como clave de un `match`/array fijo.
+
+Los operadores `is_null`/`is_not_null` no llevan valor ni parametro bindeado; el resto usa un placeholder posicional (`:advf_N`) para no colisionar con los de `$filters`/`$search`/las condiciones base, que ya usan sus propios prefijos (ver `Condition`).
+
+`TailwindRenderer` no sabe nada de esta logica: solo genera los inputs `af_field[]`/`af_op[]`/`af_value[]`/`af_conn[]` dentro del mismo `<form>` del filtro simple, en el mismo orden en que estan en el DOM (`appycrudAddFilterRow()`/`appycrudRemoveFilterRow()` solo clonan/quitan bloques completos de 4 inputs desde un `<template>`, nunca reordenan). El envio via `FormData(form)` preserva ese orden, que es lo que permite alinear los 4 arrays por posicion sin depender de indices explicitos en los nombres.
 
 ### `insertDefaults`
 
@@ -112,3 +143,11 @@ El mismo `<dialog id="appycrud-confirm-dialog">` se reutiliza para *todas* las c
 `AppyCrud::processFileUploads()` corre **despues** de `restrictToFields()` pero **antes** de `Validator::validate()`, para que una regla `required` sobre un campo `file` vea el nombre de archivo ya resuelto (nuevo upload, o el existente conservado) en vez de nada. La logica de "conservar el archivo existente si no se sube uno nuevo" depende de `$existingRow` (`null` en creacion, la fila actual en edicion via `repository->find($id)` **antes** de tocar los datos) — sin esto, editar sin re-subir borraria la referencia al archivo.
 
 Extensiones peligrosas (`DANGEROUS_UPLOAD_EXTENSIONS`) se reemplazan por `.bin` **siempre**, incluso si el archivo original las trae — es una lista negra fija, no configurable, porque la superficie de riesgo (ejecutar codigo si `uploadDir` termina siendo servido por HTTP) no depende del caso de uso de cada integrador.
+
+### Quitar/reemplazar el archivo y borrado fisico al eliminar
+
+La casilla `remove_{columna}` (renderizada por `TailwindRenderer::renderFileInput()` solo cuando ya hay un archivo guardado) sigue el mismo patron que `extractManyToManySelections()`: `AppyCrud::handleUpdate()` la extrae de `$post` **antes** de `restrictToFields()` (via `extractRemoveFileFlags()`) y la vuelve a mezclar en los datos que llegan a `processFileUploads()` — de lo contrario `restrictToFields()` la descartaria en cuanto `editFields` no incluya explicitamente ese nombre sintetico.
+
+Dentro de `processFileUploads()`, si `remove_{columna}` vino marcada y no se subio un archivo nuevo, se llama a `deleteUploadedFile()` (borra el archivo fisico, `@unlink` best-effort) y **se asigna `null` explicito** a la columna en `$data` — nunca un `unset()`. Esto importa porque `CrudRepository::update()` arma el `UPDATE` solo con las claves presentes en `$data`: un `unset()` simplemente omite la columna del `SET` (deja el valor viejo intacto en la BD), mientras que asignar `null` la incluye con `= NULL`. El mismo cuidado aplica cuando se sube un archivo de reemplazo: antes de sobreescribir `$data[$column->name]` con el nuevo nombre, se borra el archivo anterior (`$existingRow[$column->name]`) si es distinto, para no dejar huerfanos.
+
+`deleteFilesOnDelete` (default `true`) se resuelve en `AppyCrud::deleteUploadedFilesFor($id)`, llamado en `handleDelete()`/`handleBulkDelete()` **antes** de `deleteManyToManyFor()` y de `repository->delete()` — necesita leer la fila con `repository->find($id)` mientras todavia existe, igual que la limpieza de M2M.
