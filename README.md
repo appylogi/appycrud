@@ -20,6 +20,8 @@ Pensado como alternativa libre y descargable a herramientas como [GroceryCRUD](h
 - **Control de campos**: qué columnas se pueden insertar y cuáles editar, por separado.
 - **Muchos a muchos** vía tabla pivote (`ManyToMany`), sincronizada automáticamente al guardar.
 - **Hooks** antes/después de insert/update/delete, con posibilidad de cancelar la operación.
+- **Acciones custom por fila** (además de Ver/Editar/Clonar/Eliminar), parametrizables.
+- **Carga de archivos**, con nombre aleatorio seguro y conservación del archivo existente al editar sin re-subir.
 - **i18n** (español/inglés incluido, agregar un idioma es un archivo nuevo en `lang/`).
 - **Un solo sistema de diseño** (Tailwind, precompilado) para mantener todo consistente; la arquitectura permite agregar otros temas más adelante.
 

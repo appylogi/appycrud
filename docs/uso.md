@@ -97,6 +97,35 @@ Cuando el campo no es una llave foránea, dale las opciones a mano:
 
 Si la columna es un `ENUM(...)` de MySQL, AppyCrud detecta los valores solo y los usa como opciones automáticamente — no hace falta declarar `options` a mano (aunque puedes sobreescribirlas si quieres otros labels).
 
+### Cargar archivos (`file`)
+
+```php
+use Appylogi\AppyCrud\AppyCrud;
+
+$config = new TableConfig([
+    'adjunto' => ['inputType' => 'file'],
+]);
+
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'uploadDir' => __DIR__ . '/uploads',        // obligatorio si hay algun campo 'file'
+    'uploadUrlPrefix' => '/mi-sitio/uploads',    // opcional: habilita el link de descarga en listado/vista
+]);
+
+// $_FILES se pasa explicito, igual que $_GET/$_POST:
+$html = $crud->handle($baseUrl, $_GET, $_POST, $isAjax, $_FILES);
+```
+
+Cómo funciona:
+
+- El archivo se guarda con un **nombre aleatorio** (no el original) dentro de `uploadDir`, y ese nombre es lo que se guarda en la columna. Esto evita colisiones entre archivos con el mismo nombre y evita que alguien adivine o controle el nombre del archivo en el servidor.
+- Las extensiones potencialmente ejecutables (`.php`, `.phtml`, `.cgi`, `.py`, `.sh`, `.asp`, `.jsp`, etc.) se descartan y se reemplazan por `.bin`, sin importar qué extensión traiga el archivo original — una defensa extra por si `uploadDir` terminara siendo accesible por HTTP con ejecución de scripts habilitada.
+- Un `<input type="file">` nunca se puede prellenar por seguridad del navegador. Si al editar no seleccionas un archivo nuevo, AppyCrud **conserva el archivo ya guardado** — no lo borra ni lo deja vacío.
+- El formulario agrega automáticamente `enctype="multipart/form-data"` en cuanto detecta al menos un campo `file`.
+
+**Importante — `uploadDir` no debería ser accesible directamente por HTTP con ejecución de scripts habilitada.** AppyCrud ya neutraliza extensiones peligrosas, pero esa es una defensa adicional, no un reemplazo de una configuración de servidor correcta (por ejemplo, un `.htaccess` con `php_flag engine off` en esa carpeta, o guardarla fuera del docroot y servirla mediante un script intermedio).
+
+**Esta versión no borra el archivo físico cuando se elimina el registro** (evita pérdida de datos si el archivo se reutiliza en otro lado); si quieres ese comportamiento, bórralo tú mismo desde un hook `afterDelete` (ver [Hooks](#hooks-antesdespués-de-las-acciones)).
+
 ## Relaciones (llaves foráneas)
 
 Si tu base de datos tiene una `FOREIGN KEY` real (MySQL, PostgreSQL o SQLite con `REFERENCES`), AppyCrud la detecta sola y renderiza un `<select>` poblado con esa tabla. La columna que se muestra como texto se adivina (`nombre`, `titulo`, `name`, `title`, `descripcion`...); si tu tabla usa otro nombre, indícalo:
@@ -147,6 +176,55 @@ Con esto, el formulario de crear/editar muestra un multiselect adicional ("Colab
 **Diferencia con `multiselect_native`/`multiselect_searchable` como tipo de campo (ver [Tipos de campo](#tipos-de-campo)):** esos guardan la selección como texto separado por comas en una sola columna de la propia tabla (`tareas.etiquetas`), sin tabla de unión. `manyToMany` sí usa una tabla pivote real — úsalo cuando la relación merece existir como entidad propia consultable desde otro lado (ej. reportes por colaborador), no solo como una lista de valores dentro de un registro.
 
 **Limitaciones de esta versión:** las relaciones `manyToMany` no aparecen como columna en el listado ni en la exportación (evita tener que resolver un `GROUP_CONCAT`/`STRING_AGG` distinto por motor); tampoco se copian al usar "Clonar" (el registro clonado empieza sin asociaciones).
+
+### ¿Y si tengo varias relaciones muchos-a-muchos en la misma tabla?
+
+Simplemente agrega más de una a la lista — cada `ManyToMany` es independiente:
+
+```php
+'manyToMany' => [
+    new ManyToMany(name: 'etiquetas', pivotTable: 'tareas_etiquetas', localKey: 'tarea_id', foreignKey: 'etiqueta_id', relatedTable: 'etiquetas'),
+    new ManyToMany(name: 'colaboradores', pivotTable: 'tareas_colaboradores', localKey: 'tarea_id', foreignKey: 'colaborador_id', relatedTable: 'colaboradores'),
+],
+```
+
+Cada una aparece como su propio multiselect en el formulario (`m2m_etiquetas[]`, `m2m_colaboradores[]`) y se sincroniza por separado. No hay límite en cuántas puedes declarar.
+
+### ¿Necesito que la `FOREIGN KEY` exista de verdad en la base de datos?
+
+No. Ni para `manyToMany` ni para el override de `reference` (ver [Relaciones](#relaciones-llaves-foráneas)) — AppyCrud arma las consultas (`SELECT`/`INSERT`/`DELETE`) con los nombres de tabla y columna que tú le des, sin verificar en ningún momento que exista un constraint `FOREIGN KEY` real. Esto es intencional: mucho código PHP legacy (y no tan legacy) tiene la relación implícita en el nombre de las columnas pero nunca declaró el constraint en el motor. Mientras la tabla y las columnas existan, funciona igual — con o sin la `FOREIGN KEY` declarada.
+
+## Acciones custom por fila
+
+Además de Ver/Editar/Clonar/Eliminar, puedes agregar tus propias acciones al menú de cada fila con `Crud\RowAction`:
+
+```php
+use Appylogi\AppyCrud\Crud\RowAction;
+
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'rowActions' => [
+        // Abre en el mismo modal (fetch): el handler debe devolver HTML.
+        new RowAction('marcar_revisado', 'Marcar revisado', function (mixed $id) use ($repository) {
+            $repository->update($id, ['revisado' => 1]);
+            return '<div class="p-6">Listo.</div>';
+        }, icon: 'edit'),
+
+        // Link normal (navegacion o descarga); el handler puede hacer header()+exit.
+        new RowAction('descargar_pdf', 'Descargar PDF', function (mixed $id) {
+            // generar y enviar el PDF...
+        }, icon: 'download', openInModal: false),
+
+        // Escritura (POST) con confirmacion, igual que Eliminar.
+        new RowAction('archivar', 'Archivar', function (mixed $id) use ($repository) {
+            $repository->update($id, ['archivada' => 1]);
+        }, icon: 'trash', confirm: '¿Archivar este registro?', method: 'post'),
+    ],
+]);
+```
+
+Parámetros de `RowAction`: `name` (se vuelve `?action={name}` internamente), `label`, `handler`, `icon` (opcional, nombre de un ícono del catálogo interno: `edit`, `eye`, `copy`, `trash`, `download`, `printer`, `dots`, o `null` para ninguno), `confirm` (mensaje opcional; si se define, pide confirmación antes de ejecutar), `method` (`'get'` por defecto o `'post'` para escrituras), `openInModal` (por defecto `true` para acciones GET — el resultado del handler se muestra dentro del mismo modal; ponlo en `false` para que sea un link normal, útil para descargas o redirecciones).
+
+El `handler` recibe `(mixed $id, array $get, array $post)` y para acciones GET con `openInModal: true` debe devolver el HTML a mostrar; para el resto, el valor de retorno no se usa (la página se recarga después).
 
 ## Hooks antes/después de las acciones
 
@@ -226,8 +304,11 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `insertDefaults` | `[]` | Valores forzados en cada insert, ver la misma sección. |
 | `defaultOrderBy` / `defaultOrderDir` | `''` / `'ASC'` | Orden inicial cuando la URL no trae `orderBy`/`orderDir` (el usuario puede cambiarlo con clic en cualquier columna). |
 | `insertFields` / `editFields` | `null` | Restringe qué columnas aparecen y se aceptan al crear/editar, ver [Campos permitidos](#campos-permitidos-al-insertar-y-editar). |
-| `manyToMany` | `[]` | `ManyToMany[]`, ver [Muchos a muchos](#muchos-a-muchos). |
 | `hooks` | `[]` | Callables antes/después de insert/update/delete, ver [Hooks](#hooks-antesdespués-de-las-acciones). |
+| `manyToMany` | `[]` | `ManyToMany[]`, ver [Muchos a muchos](#muchos-a-muchos). |
+| `rowActions` | `[]` | `RowAction[]`, ver [Acciones custom por fila](#acciones-custom-por-fila). |
+| `uploadDir` | `null` | Ruta absoluta para archivos subidos; obligatorio si hay algún campo `file`. |
+| `uploadUrlPrefix` | `null` | URL pública para el link de descarga en listado/vista; sin esto, solo se muestra el nombre del archivo. |
 
 Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero siguen siendo consultas al servidor — no se pierden resultados en tablas con miles de filas y paginación, a diferencia de un filtro puramente en JavaScript sobre lo ya cargado en pantalla.
 

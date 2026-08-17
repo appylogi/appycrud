@@ -32,6 +32,7 @@ class TailwindRenderer
      * @param array<string, mixed> $features ver AppyCrud::$features (export/bulkDelete/filters/search/view/print/clone/...)
      * @param array<string, string> $activeFilters columna => valor de filtro actualmente aplicado
      */
+    /** @param array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> $rowActions */
     public function renderList(
         TableSchema $schema,
         array $pagination,
@@ -44,6 +45,8 @@ class TailwindRenderer
         string $orderBy = '',
         string $orderDir = 'ASC',
         string $csrfToken = '',
+        array $rowActions = [],
+        ?string $uploadUrlPrefix = null,
     ): string {
         $t = $this->translator;
         $filtersEnabled = $features['filters'] ?? true;
@@ -63,7 +66,7 @@ class TailwindRenderer
 
         $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
 
-        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken);
+        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix);
 
         return <<<HTML
         <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
@@ -83,6 +86,7 @@ class TailwindRenderer
      * filtros), pensado para reemplazar #appycrud-list-body por fetch cuando
      * el usuario filtra/busca/ordena, sin recargar toda la pagina.
      */
+    /** @param array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> $rowActions */
     public function renderListBody(
         TableSchema $schema,
         array $pagination,
@@ -95,8 +99,10 @@ class TailwindRenderer
         string $orderBy = '',
         string $orderDir = 'ASC',
         string $csrfToken = '',
+        array $rowActions = [],
+        ?string $uploadUrlPrefix = null,
     ): string {
-        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken);
+        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix);
     }
 
     private function renderListInner(
@@ -111,6 +117,8 @@ class TailwindRenderer
         string $orderBy,
         string $orderDir,
         string $csrfToken,
+        array $rowActions = [],
+        ?string $uploadUrlPrefix = null,
     ): string {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
@@ -151,10 +159,14 @@ class TailwindRenderer
                     ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                     : $rawValue;
 
-                $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $this->e($displayValue) . '</td>';
+                $cellContent = FieldType::isFile($column->inputType ?? '')
+                    ? $this->renderFileCell($rawValue, $uploadUrlPrefix)
+                    : $this->e($displayValue);
+
+                $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $cellContent . '</td>';
             }
 
-            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken) . '</td>';
+            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions) . '</td>';
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
         }
@@ -185,12 +197,13 @@ class TailwindRenderer
     {
         $t = $this->translator;
         $bulkMessage = $this->e($this->jsString($t->t('list.bulk_delete_confirm', ['count' => '__COUNT__'])));
+        $bulkDeleteLabel = $this->e($this->jsString($t->t('list.delete')));
         $bulkRequireConfirm = $deleteMode === DeleteMode::CONFIRM ? 'true' : 'false';
         $bulkDeleteUrl = $this->e($baseUrl) . '?action=bulkDelete';
 
         return '<div class="flex items-center gap-2">'
             . '<input type="checkbox" onclick="appycrudToggleAll(this)" aria-label="' . $this->e($t->t('list.select_all')) . '">'
-            . '<button type="button" id="appycrud-bulk-delete-btn" onclick="appycrudBulkDelete(\'' . $bulkDeleteUrl . '\', ' . $bulkMessage . ', ' . $bulkRequireConfirm . ')" class="hidden items-center gap-1 text-red-600 hover:text-red-800 text-xs font-medium">'
+            . '<button type="button" id="appycrud-bulk-delete-btn" onclick="appycrudBulkDelete(\'' . $bulkDeleteUrl . '\', ' . $bulkMessage . ', ' . $bulkRequireConfirm . ', ' . $bulkDeleteLabel . ')" class="hidden items-center gap-1 text-red-600 hover:text-red-800 text-xs font-medium">'
             . $this->icon('trash') . '<span>' . $this->e($t->t('list.bulk_delete')) . '</span><span class="appycrud-bulk-count"></span>'
             . '</button>'
             . '</div>';
@@ -204,6 +217,22 @@ class TailwindRenderer
         $arrow = $isActive ? ($nextDir === 'DESC' ? ' ↑' : ' ↓') : '';
 
         return '<a href="' . $this->e($baseUrl) . '?' . $query . '" class="hover:text-gray-900' . ($isActive ? ' text-gray-900' : '') . '">' . $this->e($column->label) . $arrow . '</a>';
+    }
+
+    /** Si hay uploadUrlPrefix, el nombre del archivo se muestra como link de descarga; si no, solo como texto. */
+    private function renderFileCell(string $filename, ?string $uploadUrlPrefix): string
+    {
+        if ($filename === '') {
+            return '';
+        }
+
+        if ($uploadUrlPrefix === null) {
+            return $this->e($filename);
+        }
+
+        $url = $this->e(rtrim($uploadUrlPrefix, '/') . '/' . $filename);
+
+        return '<a href="' . $url . '" target="_blank" class="text-blue-600 hover:underline">' . $this->e($filename) . '</a>';
     }
 
     /** @return string querystring (sin "?") con filtros + busqueda + orden */
@@ -229,7 +258,8 @@ class TailwindRenderer
         return http_build_query($params);
     }
 
-    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = ''): string
+    /** @param array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> $rowActions */
+    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = '', array $rowActions = []): string
     {
         $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
         $viewUrl = $this->e($baseUrl) . '?action=view&id=' . $this->e((string) $pkValue) . '&ajax=1';
@@ -238,16 +268,16 @@ class TailwindRenderer
         $csrfField = $csrfToken !== '' ? '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">' : '';
 
         $deleteSubmit = $deleteMode === DeleteMode::CONFIRM
-            ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($t->t('confirm.delete'))) . ');"'
+            ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($t->t('confirm.delete'))) . ', ' . $this->e($this->jsString($t->t('list.delete'))) . ');"'
             : '';
         $deleteForm = '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '"' . $deleteSubmit . '>' . $csrfField . '%s</form>';
 
         $editButton = '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="%s text-blue-600 hover:text-blue-800%s">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
 
-        $extraCount = ($viewEnabled ? 1 : 0) + ($cloneEnabled ? 1 : 0) + 1; // +1 por Eliminar, siempre presente
-
         // Con pocas acciones se muestran todas en linea; con varias, las
         // secundarias se agrupan en un menu para no saturar la fila.
+        $extraCount = ($viewEnabled ? 1 : 0) + ($cloneEnabled ? 1 : 0) + 1 + count($rowActions); // +1 por Eliminar, siempre presente
+
         if ($extraCount <= 1) {
             $inline = sprintf($editButton, 'inline-flex items-center gap-1', '');
             $inline .= sprintf($deleteForm, '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
@@ -262,6 +292,9 @@ class TailwindRenderer
         if ($cloneEnabled) {
             $menuItems .= '<button type="button" onclick="appycrudOpenModal(\'' . $cloneUrl . '\')" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50 text-left">' . $this->icon('copy') . '<span>' . $this->e($t->t('list.clone')) . '</span></button>';
         }
+        foreach ($rowActions as $action) {
+            $menuItems .= $this->renderCustomRowAction($action, $pkValue, $baseUrl, $csrfToken);
+        }
         $menuItems .= sprintf($deleteForm, '<button type="submit" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
 
         return '<span class="inline-flex items-center gap-3">'
@@ -271,6 +304,36 @@ class TailwindRenderer
             . '<div class="hidden appycrud-menu w-40 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">' . $menuItems . '</div>'
             . '</span>'
             . '</span>';
+    }
+
+    /** @param array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool} $action */
+    private function renderCustomRowAction(array $action, mixed $pkValue, string $baseUrl, string $csrfToken): string
+    {
+        $url = $this->e($baseUrl) . '?action=' . $this->e($action['name']) . '&id=' . $this->e((string) $pkValue);
+        $iconHtml = $action['icon'] !== null ? $this->icon($action['icon']) : '';
+        $labelHtml = '<span>' . $this->e($action['label']) . '</span>';
+        $itemClass = 'w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left';
+
+        if ($action['method'] === 'post') {
+            $csrfField = $csrfToken !== '' ? '<input type="hidden" name="csrf_token" value="' . $this->e($csrfToken) . '">' : '';
+            $onsubmit = $action['confirm'] !== null
+                ? ' onsubmit="return appycrudConfirmSubmit(event, this, ' . $this->e($this->jsString($action['confirm'])) . ', ' . $this->e($this->jsString($action['label'])) . ');"'
+                : '';
+
+            return '<form method="post" action="' . $url . '"' . $onsubmit . '>' . $csrfField . '<button type="submit" class="' . $itemClass . '">' . $iconHtml . $labelHtml . '</button></form>';
+        }
+
+        if ($action['openInModal']) {
+            return '<button type="button" onclick="appycrudOpenModal(\'' . $url . '&ajax=1\')" class="' . $itemClass . '">' . $iconHtml . $labelHtml . '</button>';
+        }
+
+        if ($action['confirm'] !== null) {
+            $onclick = 'appycrudConfirmAction(' . $this->jsString($action['confirm']) . ', function () { window.location.href = ' . $this->jsString($url) . '; }, ' . $this->jsString($action['label']) . '); return false;';
+
+            return '<a href="' . $url . '" onclick="' . $this->e($onclick) . '" class="' . $itemClass . '">' . $iconHtml . $labelHtml . '</a>';
+        }
+
+        return '<a href="' . $url . '" class="' . $itemClass . '">' . $iconHtml . $labelHtml . '</a>';
     }
 
     private function renderExportMenu(string $baseUrl, array $activeFilters, string $search): string
@@ -350,7 +413,7 @@ class TailwindRenderer
     private function renderModalShell(string $csrfToken = ''): string
     {
         $cancelLabel = $this->e($this->translator->t('form.cancel'));
-        $deleteLabel = $this->e($this->translator->t('list.delete'));
+        $defaultAcceptLabel = $this->e($this->translator->t('confirm.accept'));
         $csrfTokenJs = $this->jsString($csrfToken);
 
         return <<<HTML
@@ -369,7 +432,7 @@ class TailwindRenderer
             <p id="appycrud-confirm-message" class="text-sm text-gray-700 mb-5"></p>
             <div class="flex justify-end gap-3">
                 <button type="button" onclick="appycrudCancelConfirm()" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$cancelLabel}</button>
-                <button type="button" onclick="appycrudAcceptConfirm()" class="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700">{$deleteLabel}</button>
+                <button type="button" id="appycrud-confirm-accept-btn" data-default-label="{$defaultAcceptLabel}" onclick="appycrudAcceptConfirm()" class="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700">{$defaultAcceptLabel}</button>
             </div>
         </dialog>
         <script>
@@ -504,9 +567,11 @@ class TailwindRenderer
 
         var appycrudPendingAction = null;
 
-        function appycrudConfirmAction(message, action) {
+        function appycrudConfirmAction(message, action, label) {
             appycrudPendingAction = action;
             document.getElementById('appycrud-confirm-message').textContent = message;
+            var btn = document.getElementById('appycrud-confirm-accept-btn');
+            btn.textContent = label || btn.getAttribute('data-default-label');
             document.getElementById('appycrud-confirm-dialog').showModal();
         }
 
@@ -526,16 +591,16 @@ class TailwindRenderer
             action();
         }
 
-        function appycrudConfirmSubmit(event, form, message) {
+        function appycrudConfirmSubmit(event, form, message, label) {
             event.preventDefault();
             appycrudConfirmAction(message, function () {
                 fetch(form.getAttribute('action'), { method: 'POST', body: new FormData(form) })
                     .then(function () { window.location.reload(); });
-            });
+            }, label);
             return false;
         }
 
-        function appycrudBulkDelete(url, message, requireConfirm) {
+        function appycrudBulkDelete(url, message, requireConfirm, label) {
             var ids = Array.prototype.map.call(document.querySelectorAll('.appycrud-row-check:checked'), function (c) { return c.value; });
 
             if (ids.length === 0) {
@@ -551,7 +616,7 @@ class TailwindRenderer
             };
 
             if (requireConfirm) {
-                appycrudConfirmAction(message.replace('__COUNT__', ids.length), run);
+                appycrudConfirmAction(message.replace('__COUNT__', ids.length), run, label);
             } else {
                 run();
             }
@@ -578,6 +643,7 @@ class TailwindRenderer
         $pkValue = $pk !== null ? ($values[$pk->name] ?? '') : '';
 
         $fields = '';
+        $hasFileField = false;
         foreach ($schema->visibleColumns() as $column) {
             if ($column->isPrimaryKey || $column->readOnly) {
                 continue;
@@ -585,6 +651,10 @@ class TailwindRenderer
 
             if ($fieldsWhitelist !== null && !in_array($column->name, $fieldsWhitelist, true)) {
                 continue;
+            }
+
+            if (FieldType::isFile($column->inputType ?? '')) {
+                $hasFileField = true;
             }
 
             $fields .= $this->renderField(
@@ -603,12 +673,13 @@ class TailwindRenderer
         $generalErrorHtml = $generalError !== ''
             ? '<div class="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">' . $this->e($generalError) . '</div>'
             : '';
+        $enctype = $hasFileField ? ' enctype="multipart/form-data"' : '';
 
         return <<<HTML
         <div class="p-6">
             <h1 class="text-xl font-bold text-gray-900 mb-4">{$this->e($title)}</h1>
             {$generalErrorHtml}
-            <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="space-y-4" onsubmit="return appycrudSubmitForm(event, this)">
+            <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="space-y-4"{$enctype} onsubmit="return appycrudSubmitForm(event, this)">
                 {$csrfField}
                 {$fields}
                 <div class="flex justify-end gap-3 pt-2">
@@ -628,7 +699,7 @@ class TailwindRenderer
     /**
      * @param array<int, array{label: string, values: string[]}> $manyToMany relaciones muchos-a-muchos ya resueltas a sus labels
      */
-    public function renderView(TableSchema $schema, array $values, string $baseUrl, string $id, array $referenceOptions = [], array $manyToMany = []): string
+    public function renderView(TableSchema $schema, array $values, string $baseUrl, string $id, array $referenceOptions = [], array $manyToMany = [], ?string $uploadUrlPrefix = null): string
     {
         $t = $this->translator;
 
@@ -646,9 +717,13 @@ class TailwindRenderer
                 ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                 : $rawValue;
 
+            $ddContent = FieldType::isFile($column->inputType ?? '')
+                ? ($rawValue !== '' ? $this->renderFileCell($rawValue, $uploadUrlPrefix) : '—')
+                : $this->e($displayValue !== '' ? $displayValue : '—');
+
             $rows .= '<div class="py-2 border-b border-gray-100">'
                 . '<dt class="text-xs font-semibold uppercase text-gray-500">' . $this->e($column->label) . '</dt>'
-                . '<dd class="text-sm text-gray-900 mt-0.5">' . $this->e($displayValue !== '' ? $displayValue : '—') . '</dd>'
+                . '<dd class="text-sm text-gray-900 mt-0.5">' . $ddContent . '</dd>'
                 . '</div>';
         }
 
@@ -793,6 +868,7 @@ class TailwindRenderer
             FieldType::STRATEGY_SELECT_SEARCHABLE => $this->renderSearchableSelect($column, $name, $value, $optionSource, $required, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT => $this->renderMultiselect($name, $value, $optionSource, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT_SEARCHABLE => $this->renderMultiselectSearchable($name, $value, $optionSource),
+            FieldType::STRATEGY_FILE => $this->renderFileInput($name, $value, $baseClass . $errorClass, $required !== '' && $value === ''),
             default => $this->renderTextLikeInput('text', $name, $value, $baseClass . $errorClass, $required, $column->maxLength),
         };
 
@@ -815,6 +891,26 @@ class TailwindRenderer
         return '<input type="' . $type . '" name="' . $name . '" value="' . $this->e($value) . '" class="' . $class . '"'
             . ($maxLength !== null ? ' maxlength="' . $maxLength . '"' : '')
             . $required . $attrs . '>';
+    }
+
+    /**
+     * $value trae el nombre del archivo ya guardado (si lo hay, en edicion).
+     * Un <input type="file"> nunca se puede prellenar por seguridad del
+     * navegador, asi que se muestra como texto informativo aparte; si no se
+     * selecciona uno nuevo al guardar, AppyCrud conserva el archivo actual
+     * (ver AppyCrud::processFileUploads()).
+     */
+    private function renderFileInput(string $name, string $value, string $class, bool $required): string
+    {
+        $input = '<input type="file" name="' . $name . '" class="' . $class . '"' . ($required ? ' required' : '') . '>';
+
+        if ($value === '') {
+            return $input;
+        }
+
+        $currentLabel = $this->e($this->translator->t('form.current_file', ['file' => $value]));
+
+        return $input . '<p class="mt-1 text-xs text-gray-500">' . $currentLabel . '</p>';
     }
 
     private function renderPasswordToggle(string $name, string $class, string $required, ?int $maxLength): string

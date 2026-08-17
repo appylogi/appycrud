@@ -16,6 +16,7 @@ use Appylogi\AppyCrud\AppyCrud;
 use Appylogi\AppyCrud\Crud\Condition;
 use Appylogi\AppyCrud\Crud\HookAbortException;
 use Appylogi\AppyCrud\Crud\ManyToMany;
+use Appylogi\AppyCrud\Crud\RowAction;
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Schema\TableConfig;
 
@@ -51,6 +52,7 @@ if ($isNew) {
     // detecta TEXT/LONGTEXT como contenido largo y lo renderiza como textarea).
     // 'archivada' demuestra 'where'/'insertDefaults' mas abajo: nunca se ve en
     // el form (hidden) ni en el listado (scoping), pero existe en la tabla.
+    // 'adjunto' demuestra inputType 'file' (ver 'uploadDir' mas abajo).
     $pdo->exec('CREATE TABLE tareas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         titulo VARCHAR(150) NOT NULL,
@@ -58,10 +60,16 @@ if ($isNew) {
         categoria_id INTEGER REFERENCES categorias(id),
         prioridad VARCHAR(10) DEFAULT "media",
         etiquetas VARCHAR(100),
+        adjunto VARCHAR(255),
         completada INTEGER NOT NULL DEFAULT 0,
         archivada INTEGER NOT NULL DEFAULT 0,
         creada_en TEXT DEFAULT CURRENT_TIMESTAMP
     )');
+}
+
+$uploadDir = __DIR__ . '/uploads';
+if (!is_dir($uploadDir)) {
+    mkdir($uploadDir, 0755, true);
 }
 
 $connection = Connection::fromPdo($pdo);
@@ -91,6 +99,7 @@ $config = new TableConfig([
         ['value' => 'oficina', 'label' => 'Oficina'],
         ['value' => 'viaje', 'label' => 'Viaje'],
     ]],
+    'adjunto' => ['label' => 'Adjunto', 'inputType' => 'file'],
 ]);
 
 $locale = $_GET['lang'] ?? 'es';
@@ -148,13 +157,41 @@ $options = [
             }
         },
     ],
+    // Carpeta donde se guardan los archivos subidos (columna 'adjunto', inputType 'file').
+    // Obligatorio en cuanto una columna use ese tipo. 'uploadUrlPrefix' es opcional:
+    // si se indica, el listado/vista muestran un link de descarga en vez de solo el nombre.
+    'uploadDir' => $uploadDir,
+    'uploadUrlPrefix' => '/appycrud/examples/uploads',
+    // Accion custom agregada al menu de cada fila (ver Crud\RowAction).
+    'rowActions' => [
+        new RowAction(
+            name: 'duplicar_sin_adjunto',
+            label: 'Duplicar sin adjunto',
+            handler: function (mixed $id, array $get, array $post) use ($pdo) {
+                $stmt = $pdo->prepare('SELECT titulo, descripcion, categoria_id, prioridad FROM tareas WHERE id = :id');
+                $stmt->execute(['id' => $id]);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+                if ($row !== false) {
+                    $insert = $pdo->prepare('INSERT INTO tareas (titulo, descripcion, categoria_id, prioridad) VALUES (:titulo, :descripcion, :categoria_id, :prioridad)');
+                    $insert->execute($row);
+                }
+
+                header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
+                exit;
+            },
+            icon: 'copy',
+            confirm: 'Duplicar esta tarea sin su adjunto ni colaboradores?',
+            method: 'post',
+        ),
+    ],
 ];
 
 $crud = new AppyCrud($connection, 'tareas', $config, $locale, $options);
 
 $baseUrl = strtok($_SERVER['REQUEST_URI'], '?');
 $isAjax = isset($_GET['ajax']) || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
-$html = $crud->handle($baseUrl, $_GET, $_POST, $isAjax);
+$html = $crud->handle($baseUrl, $_GET, $_POST, $isAjax, $_FILES);
 
 if ($isAjax) {
     echo $html;

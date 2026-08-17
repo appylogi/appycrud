@@ -1,4 +1,5 @@
 /vendor/
 composer.lock
 examples/demo.sqlite
+examples/uploads/
 *.sqlite

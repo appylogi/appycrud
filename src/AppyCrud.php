@@ -8,6 +8,7 @@ use Appylogi\AppyCrud\Crud\CrudRepository;
 use Appylogi\AppyCrud\Crud\DeleteMode;
 use Appylogi\AppyCrud\Crud\HookAbortException;
 use Appylogi\AppyCrud\Crud\ManyToMany;
+use Appylogi\AppyCrud\Crud\RowAction;
 use Appylogi\AppyCrud\Crud\Validator;
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Lang\Translator;
@@ -64,6 +65,17 @@ use InvalidArgumentException;
  *     pivote (ver esa clase). Se renderizan como un multiselect adicional en
  *     crear/editar, se sincronizan despues de guardar el registro principal,
  *     y se limpian antes de eliminarlo (evita filas huerfanas en el pivote).
+ *   - 'rowActions' => Crud\RowAction[] acciones custom agregadas al menu de
+ *     cada fila (junto a Ver/Editar/Clonar/Eliminar). Ver esa clase.
+ *   - 'uploadDir' => ruta absoluta donde se guardan los archivos subidos.
+ *     Obligatorio si alguna columna usa inputType 'file'. Debe existir y ser
+ *     escribible, y NO deberia ser accesible directamente por HTTP con
+ *     ejecucion de scripts habilitada (o al menos deshabilita la ejecucion de
+ *     PHP ahi) — AppyCrud ya evita guardar extensiones peligrosas (.php,
+ *     .phtml, etc.) pero la carpeta en si es responsabilidad tuya.
+ *   - 'uploadUrlPrefix' => URL publica desde la que esos archivos son
+ *     descargables (ej. '/uploads'), usada para armar el link en listado/vista.
+ *     Si no se indica, solo se muestra el nombre del archivo como texto.
  */
 class AppyCrud
 {
@@ -81,6 +93,10 @@ class AppyCrud
     private array $hooks;
     /** @var array<string, ManyToMany> keyed por ManyToMany::$name */
     private array $manyToMany;
+    /** @var RowAction[] */
+    private array $rowActions;
+    private ?string $uploadDir;
+    private ?string $uploadUrlPrefix;
 
     public function __construct(
         private Connection $connection,
@@ -133,6 +149,23 @@ class AppyCrud
             $this->manyToMany[$relation->name] = $relation;
         }
 
+        $this->rowActions = $options['rowActions'] ?? [];
+
+        $this->uploadDir = $options['uploadDir'] ?? null;
+        $this->uploadUrlPrefix = $options['uploadUrlPrefix'] ?? null;
+
+        $hasFileColumn = false;
+        foreach ($this->schema->columns() as $column) {
+            if (FieldType::isFile($column->inputType ?? '')) {
+                $hasFileColumn = true;
+                break;
+            }
+        }
+
+        if ($hasFileColumn && $this->uploadDir === null) {
+            throw new InvalidArgumentException("AppyCrud: hay una columna con inputType 'file' pero falta la opcion 'uploadDir'.");
+        }
+
         /** @var Condition[] $where */
         $where = $options['where'] ?? [];
         $insertDefaults = $options['insertDefaults'] ?? [];
@@ -166,14 +199,20 @@ class AppyCrud
      * Algunas acciones (delete, bulkDelete, store/update validos, export, print)
      * terminan el request ellas mismas (redirect o salida directa).
      */
-    public function handle(string $baseUrl, array $get, array $post, bool $isAjax = false): string
+    public function handle(string $baseUrl, array $get, array $post, bool $isAjax = false, array $files = []): string
     {
         $action = $get['action'] ?? 'list';
+
+        foreach ($this->rowActions as $rowAction) {
+            if ($rowAction->name === $action) {
+                return ($rowAction->handler)($get['id'] ?? null, $get, $post);
+            }
+        }
 
         return match ($action) {
             'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null)),
             'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($get['id'] ?? null)),
-            'view' => $this->renderer->renderView($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, (string) ($get['id'] ?? ''), $this->referenceOptions(), $this->manyToManyViewData($get['id'] ?? null)),
+            'view' => $this->renderer->renderView($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, (string) ($get['id'] ?? ''), $this->referenceOptions(), $this->manyToManyViewData($get['id'] ?? null), $this->uploadUrlPrefix),
             'clone' => $this->renderer->renderForm(
                 $this->schema,
                 $this->repository->cloneData($get['id'] ?? '', $this->features['cloneExcludeColumns'], $this->features['cloneSuffixColumn'], $this->features['cloneSuffix']) ?? [],
@@ -186,8 +225,8 @@ class AppyCrud
                 $this->insertFields,
                 $this->manyToManyFormData(null),
             ),
-            'store' => $this->handleStore($post, $baseUrl),
-            'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl),
+            'store' => $this->handleStore($post, $baseUrl, $files),
+            'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl, $files),
             'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl, $post),
             'bulkDelete' => $this->handleBulkDelete($post, $baseUrl),
             'export' => $this->handleExport($get),
@@ -283,7 +322,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken());
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix);
     }
 
     /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */
@@ -291,7 +330,20 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken());
+        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix);
+    }
+
+    /** @return array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> */
+    private function rowActionsForRender(): array
+    {
+        return array_map(fn (RowAction $a) => [
+            'name' => $a->name,
+            'label' => $a->label,
+            'icon' => $a->icon,
+            'confirm' => $a->confirm,
+            'method' => $a->method,
+            'openInModal' => $a->openInModal,
+        ], $this->rowActions);
     }
 
     /** @return array{0: array, 1: array<string,string>, 2: string, 3: string, 4: string} */
@@ -308,7 +360,7 @@ class AppyCrud
         return [$pagination, $filters, $search, $orderBy, $orderDir];
     }
 
-    private function handleStore(array $post, string $baseUrl): string
+    private function handleStore(array $post, string $baseUrl, array $files = []): string
     {
         $m2mSelections = $this->extractManyToManySelections($post);
 
@@ -318,6 +370,7 @@ class AppyCrud
         }
 
         $post = $this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields));
+        $post = $this->processFileUploads($files, $post, null);
         $errors = Validator::validate($this->schema, $post);
 
         if ($errors !== []) {
@@ -344,7 +397,7 @@ class AppyCrud
         $this->redirect($baseUrl);
     }
 
-    private function handleUpdate(mixed $id, array $post, string $baseUrl): string
+    private function handleUpdate(mixed $id, array $post, string $baseUrl, array $files = []): string
     {
         $pk = $this->schema->primaryKey();
         $values = $pk !== null ? $post + [$pk->name => $id] : $post;
@@ -355,7 +408,9 @@ class AppyCrud
             return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
 
+        $existingRow = $this->repository->find($id);
         $post = $this->normalizeMultiselectFields($this->restrictToFields($post, $this->editFields));
+        $post = $this->processFileUploads($files, $post, $existingRow);
         $values = $pk !== null ? $post + [$pk->name => $id] : $post;
         $errors = Validator::validate($this->schema, $post);
 
@@ -468,6 +523,58 @@ class AppyCrud
         foreach ($this->schema->columns() as $column) {
             if (isset($data[$column->name]) && is_array($data[$column->name]) && FieldType::isMultiselect($column->inputType ?? '')) {
                 $data[$column->name] = implode(',', $data[$column->name]);
+            }
+        }
+
+        return $data;
+    }
+
+    /** Extensiones que nunca se conservan, aunque el archivo original las traiga (riesgo de ejecutar codigo si uploadDir es accesible por HTTP). */
+    private const DANGEROUS_UPLOAD_EXTENSIONS = ['php', 'php3', 'php4', 'php5', 'php7', 'phtml', 'phar', 'pht', 'cgi', 'pl', 'py', 'sh', 'exe', 'asp', 'aspx', 'jsp', 'htaccess', 'config'];
+
+    /**
+     * Procesa las columnas 'file': si se subio un archivo nuevo, lo guarda con
+     * un nombre aleatorio (evita colisiones y extensiones peligrosas) y pone
+     * ese nombre en $data. Si no se subio uno nuevo, conserva el valor ya
+     * existente en $existingRow (editar sin re-subir no borra el archivo) —
+     * en creacion ($existingRow === null), simplemente no se setea la columna.
+     */
+    private function processFileUploads(array $files, array $data, ?array $existingRow): array
+    {
+        foreach ($this->schema->columns() as $column) {
+            if (!FieldType::isFile($column->inputType ?? '')) {
+                continue;
+            }
+
+            $file = $files[$column->name] ?? null;
+            $hasNewFile = is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+
+            if (!$hasNewFile) {
+                if ($existingRow !== null && isset($existingRow[$column->name])) {
+                    $data[$column->name] = $existingRow[$column->name];
+                } else {
+                    unset($data[$column->name]);
+                }
+                continue;
+            }
+
+            if ($file['error'] !== UPLOAD_ERR_OK || $this->uploadDir === null) {
+                unset($data[$column->name]);
+                continue;
+            }
+
+            $extension = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', pathinfo($file['name'], PATHINFO_EXTENSION)));
+            if ($extension === '' || in_array($extension, self::DANGEROUS_UPLOAD_EXTENSIONS, true)) {
+                $extension = 'bin';
+            }
+
+            $safeName = bin2hex(random_bytes(16)) . '.' . $extension;
+            $destination = rtrim($this->uploadDir, '/\\') . DIRECTORY_SEPARATOR . $safeName;
+
+            if (move_uploaded_file($file['tmp_name'], $destination)) {
+                $data[$column->name] = $safeName;
+            } else {
+                unset($data[$column->name]);
             }
         }
 

@@ -30,5 +30,7 @@ return [
     'view.close' => 'Cerrar',
     'view.print' => 'Imprimir',
     'confirm.delete' => 'Seguro que deseas eliminar este registro?',
+    'confirm.accept' => 'Confirmar',
     'form.csrf_error' => 'Tu sesion o el formulario expiraron. Cierra este cuadro, vuelve a abrirlo e intenta de nuevo.',
+    'form.current_file' => 'Archivo actual: :file (deja vacio para conservarlo)',
 ];

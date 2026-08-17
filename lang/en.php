@@ -30,5 +30,7 @@ return [
     'view.close' => 'Close',
     'view.print' => 'Print',
     'confirm.delete' => 'Are you sure you want to delete this record?',
+    'confirm.accept' => 'Confirm',
     'form.csrf_error' => 'Your session or the form expired. Close this dialog, reopen it and try again.',
+    'form.current_file' => 'Current file: :file (leave empty to keep it)',
 ];

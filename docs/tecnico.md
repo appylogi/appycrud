@@ -90,3 +90,25 @@ En `handleBulkDelete`, `beforeDelete`/`afterDelete` se invocan **por cada id** d
 ## Render de listado: pagina completa vs. fragmento
 
 `TailwindRenderer::renderList()` (pagina completa: titulo, toolbar, formulario de filtros) y `renderListBody()` (solo tabla + paginacion, usado por el fetch de filtrado/busqueda AJAX) comparten toda su logica de armado de filas en el metodo privado `renderListInner()`. `AppyCrud::handle()` decide cual devolver segun `$isAjax` en la accion por defecto (`list`).
+
+## `RowAction`: acciones custom por fila
+
+`AppyCrud::handle()` revisa `$this->rowActions` **antes** de entrar al `match()` de acciones internas: si `$_GET['action']` coincide con el `name` de alguna `RowAction`, se ejecuta su `handler` y ese resultado se retorna directo — el `match()` interno ni se evalua. Esto significa que un `name` de `RowAction` puede, en teoria, pisar una accion interna (`view`, `edit`, etc.) si se usa el mismo nombre; no hay validacion contra eso, es responsabilidad del integrador elegir nombres que no choquen.
+
+`TailwindRenderer::renderCustomRowAction()` arma tres variantes de HTML segun `method`/`openInModal`/`confirm`:
+
+- `method: 'post'` → un `<form>` con el token CSRF como campo oculto (igual que Eliminar). Si `confirm` esta definido, el submit se intercepta con `appycrudConfirmSubmit()` (el mismo mecanismo que usa el borrado individual).
+- `method: 'get'`, `openInModal: true` (default) → un boton que hace `appycrudOpenModal()` (fetch + mostrar el HTML devuelto dentro del dialog), igual que Ver/Editar/Clonar.
+- `method: 'get'`, `openInModal: false` → un `<a href>` normal; si tiene `confirm`, el click se intercepta con `appycrudConfirmAction()` en vez de navegar directo.
+
+### El boton de aceptar del dialog de confirmacion es dinamico
+
+El mismo `<dialog id="appycrud-confirm-dialog">` se reutiliza para *todas* las confirmaciones (borrar una fila, borrado masivo, o una `RowAction` con `confirm`). Como cada una necesita un texto distinto en el boton de aceptar ("Eliminar" vs. el label de la `RowAction`, ej. "Archivar"), el boton no tiene un label fijo en el HTML — `appycrudConfirmAction(message, action, label)` le asigna `label` (o el generico `data-default-label` = `confirm.accept` si no se pasa uno) cada vez que se abre. Si agregas un nuevo punto de confirmacion, asegurate de pasar el `label` correcto a `appycrudConfirmAction()`/`appycrudConfirmSubmit()`/`appycrudBulkDelete()`, o el boton mostrara el texto de la ultima confirmacion que se disparo.
+
+## Carga de archivos
+
+`FieldType::FILE` (`STRATEGY_FILE`) es el unico tipo de campo cuyo dato **no viaja por `$_POST`** sino por `$_FILES`, asi que `AppyCrud::handle()` recibe un parametro `$files` aparte (default `[]`, para no romper compatibilidad con quien no lo use) que el integrador debe llenar con `$_FILES` explicitamente — igual que `$get`/`$post`, nunca se lee la superglobal directamente.
+
+`AppyCrud::processFileUploads()` corre **despues** de `restrictToFields()` pero **antes** de `Validator::validate()`, para que una regla `required` sobre un campo `file` vea el nombre de archivo ya resuelto (nuevo upload, o el existente conservado) en vez de nada. La logica de "conservar el archivo existente si no se sube uno nuevo" depende de `$existingRow` (`null` en creacion, la fila actual en edicion via `repository->find($id)` **antes** de tocar los datos) — sin esto, editar sin re-subir borraria la referencia al archivo.
+
+Extensiones peligrosas (`DANGEROUS_UPLOAD_EXTENSIONS`) se reemplazan por `.bin` **siempre**, incluso si el archivo original las trae — es una lista negra fija, no configurable, porque la superficie de riesgo (ejecutar codigo si `uploadDir` termina siendo servido por HTTP) no depende del caso de uso de cada integrador.

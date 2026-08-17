@@ -40,6 +40,7 @@ class FieldType
     public const STRING = 'string';
     public const TEXT = 'text';
     public const TIMESTAMP = 'timestamp';
+    public const FILE = 'file';
 
     /** Estrategias de render que implementa TailwindRenderer::renderField(). */
     public const STRATEGY_TEXT = 'text_input';
@@ -60,6 +61,7 @@ class FieldType
     public const STRATEGY_SELECT_SEARCHABLE = 'select_searchable';
     public const STRATEGY_MULTISELECT = 'multiselect';
     public const STRATEGY_MULTISELECT_SEARCHABLE = 'multiselect_searchable';
+    public const STRATEGY_FILE = 'file';
 
     private const MAP = [
         self::BOOLEAN => self::STRATEGY_CHECKBOX,
@@ -92,6 +94,7 @@ class FieldType
         self::STRING => self::STRATEGY_TEXT,
         self::TEXT => self::STRATEGY_TEXTAREA,
         'textarea' => self::STRATEGY_TEXTAREA,
+        self::FILE => self::STRATEGY_FILE,
     ];
 
     public static function strategy(string $inputType): string
@@ -104,5 +107,10 @@ class FieldType
         $strategy = self::strategy($inputType);
 
         return $strategy === self::STRATEGY_MULTISELECT || $strategy === self::STRATEGY_MULTISELECT_SEARCHABLE;
+    }
+
+    public static function isFile(string $inputType): bool
+    {
+        return self::strategy($inputType) === self::STRATEGY_FILE;
     }
 }
