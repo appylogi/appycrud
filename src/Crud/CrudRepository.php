@@ -554,10 +554,18 @@ class CrudRepository
 
     /**
      * Ids ya asociados a $primaryKeyValue en la tabla pivote de la relacion.
+     * Antes de tocar el pivote se verifica que $primaryKeyValue este dentro
+     * del scoping de baseConditions (mismo criterio que find/update/delete):
+     * un id de otro tenant/ambito no debe exponer ni modificar sus filas de
+     * pivote, aunque la tabla pivote en si no tenga columnas de scoping.
      * @return string[]
      */
     public function manyToManySelected(ManyToMany $relation, mixed $primaryKeyValue): array
     {
+        if (!$this->isInScope($primaryKeyValue)) {
+            return [];
+        }
+
         $pivotQ = $this->connection->quoteIdentifier($relation->pivotTable);
         $foreignQ = $this->connection->quoteIdentifier($relation->foreignKey);
         $localQ = $this->connection->quoteIdentifier($relation->localKey);
@@ -571,9 +579,14 @@ class CrudRepository
     /**
      * Reemplaza las asociaciones de $primaryKeyValue en la tabla pivote por
      * $selectedValues (borra todas las existentes y vuelve a insertar).
+     * Ver nota de scoping en manyToManySelected().
      */
     public function syncManyToMany(ManyToMany $relation, mixed $primaryKeyValue, array $selectedValues): void
     {
+        if (!$this->isInScope($primaryKeyValue)) {
+            return;
+        }
+
         $pivotQ = $this->connection->quoteIdentifier($relation->pivotTable);
         $foreignQ = $this->connection->quoteIdentifier($relation->foreignKey);
         $localQ = $this->connection->quoteIdentifier($relation->localKey);
@@ -591,14 +604,32 @@ class CrudRepository
         }
     }
 
-    /** Limpia las asociaciones de $primaryKeyValue antes de eliminar el registro principal (evita filas huerfanas en el pivote). */
+    /**
+     * Limpia las asociaciones de $primaryKeyValue antes de eliminar el registro
+     * principal (evita filas huerfanas en el pivote).
+     * Ver nota de scoping en manyToManySelected().
+     */
     public function deleteManyToManyFor(ManyToMany $relation, mixed $primaryKeyValue): void
     {
+        if (!$this->isInScope($primaryKeyValue)) {
+            return;
+        }
+
         $pivotQ = $this->connection->quoteIdentifier($relation->pivotTable);
         $localQ = $this->connection->quoteIdentifier($relation->localKey);
 
         $stmt = $this->connection->pdo()->prepare("DELETE FROM {$pivotQ} WHERE {$localQ} = :id");
         $stmt->execute(['id' => $primaryKeyValue]);
+    }
+
+    /** true si $primaryKeyValue matchea alguna fila visible bajo baseConditions (o si no hay baseConditions definidas). */
+    private function isInScope(mixed $primaryKeyValue): bool
+    {
+        if ($this->baseConditions === []) {
+            return true;
+        }
+
+        return $this->find($primaryKeyValue) !== null;
     }
 
     /**

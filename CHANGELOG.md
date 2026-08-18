@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [Sin publicar]
+
+### Corregido
+- Scoping (`where`/`whereIn`, etc.) no se aplicaba a las operaciones de relaciones muchos-a-muchos (`manyToManySelected`, `syncManyToMany`, `deleteManyToManyFor`): un id fuera del scope del integrador podía leer/sincronizar/borrar filas de la tabla pivote de otro tenant o ámbito, aunque `find`/`update`/`delete` sobre la tabla principal ya lo rechazaban correctamente. Ahora las tres operaciones verifican primero que el id este dentro de `baseConditions` (via `find()`) y no hacen nada si no lo esta.
+
 ## [0.1.0] - 2026-08-16
 
 Primera versión.
