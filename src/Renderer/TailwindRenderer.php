@@ -78,7 +78,18 @@ class TailwindRenderer
                 <div class="flex items-center gap-2 print:hidden">{$toolbar}</div>
             </div>
             {$searchAndFilters}
-            <div id="appycrud-list-body">{$body}</div>
+            <div class="relative">
+                <div id="appycrud-list-body">{$body}</div>
+                <div id="appycrud-list-loading" class="hidden absolute inset-0 bg-white/70 flex items-center justify-center rounded-lg">
+                    <div class="flex items-center gap-2 text-sm text-gray-600">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" stroke-opacity="0.25"></circle>
+                            <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+                        </svg>
+                        <span>{$this->e($t->t('list.loading'))}</span>
+                    </div>
+                </div>
+            </div>
         </div>
         {$modal}
         HTML;
@@ -841,10 +852,21 @@ class TailwindRenderer
 
             history.replaceState(null, '', url);
 
+            var loading = document.getElementById('appycrud-list-loading');
+            // Pequeno retraso antes de mostrar el spinner: en tablas chicas la
+            // respuesta llega en unos ms y el spinner solo parpadearia sin
+            // aportar nada; en tablas grandes, donde de verdad se nota la
+            // espera, el usuario ya lo ve para entonces.
+            var showTimer = setTimeout(function () { if (loading) { loading.classList.remove('hidden'); } }, 200);
+
             fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (r) { return r.text(); })
                 .then(function (html) {
                     document.getElementById('appycrud-list-body').innerHTML = html;
+                })
+                .finally(function () {
+                    clearTimeout(showTimer);
+                    if (loading) { loading.classList.add('hidden'); }
                 });
         }
 

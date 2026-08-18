@@ -155,6 +155,12 @@ Antes de esta version **no existia ninguna forma de navegar mas alla de la pagin
 
 `TailwindRenderer::renderPaginationNav()` genera Anterior/Siguiente como `<a href>` normales (navegacion completa, **no** AJAX) — mismo patron que `renderSortLink()`/`renderExportMenu()`: consistente con como ya se comportaba el orden por columna, en vez de sumar una ruta de fetch mas. El selector "Por pagina" es un `<select onchange="...">` con JS minimo (`URLSearchParams` sobre `location.search`, sin depender de otro `<form>`) que fija `perPage` y borra `page` (vuelve a la pagina 1) antes de navegar.
 
+### Indicador de carga en el filtrado AJAX
+
+`renderList()` envuelve `#appycrud-list-body` en un `<div class="relative">` con un hermano permanente `#appycrud-list-loading` (oculto por default, `position: absolute; inset: 0`) — deliberadamente **fuera** de `#appycrud-list-body`, para que sobreviva al `innerHTML` swap de `appycrudApplyFilters()` (si estuviera dentro, se borraria y recrearia en cada respuesta, perdiendo cualquier estado intermedio).
+
+`appycrudApplyFilters()` programa un `setTimeout` de 200ms que revela el overlay, y lo cancela + oculta en el `.finally()` del `fetch()` (corre tanto si la respuesta llega bien como si falla, a diferencia de `.then()`). El retraso de 200ms es intencional: en tablas chicas la respuesta llega casi al instante y el spinner ni se percibe (evita el parpadeo de "flash of loading state"); en tablas grandes, donde de verdad se nota la espera, para entonces el usuario ya lo ve. No hay `AbortController` para peticiones superpuestas (ej. el usuario sigue escribiendo mientras la anterior request aun no resuelve) — se acepta la carrera porque el resultado final visible es el de la ultima respuesta en llegar, que en la practica casi siempre coincide con la ultima request enviada (mismo comportamiento que ya tenia el filtrado antes de este indicador, no es una regresion nueva).
+
 ### Bug real: `renderListBody()` no propagaba `$advancedFilters`
 
 Antes de esta version, `AppyCrud::renderListBody()` desestructuraba solo 5 de los 6 valores que devuelve `paginateFromRequest()`, descartando el filtro avanzado activo. El efecto: los links de "ordenar por columna" generados **durante un refresco AJAX** (con un filtro avanzado ya aplicado) perdian ese filtro en su querystring — al hacer clic para ordenar, el filtro avanzado se perdia silenciosamente. Se corrigio capturando los 6 valores y pasando `$advancedFilters` a `renderer->renderListBody()`.

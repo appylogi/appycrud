@@ -387,6 +387,8 @@ No requiere ninguna opción adicional — se activa junto con `filters` (`true` 
 
 Tanto la búsqueda global como el filtro simple por columna consultan automáticamente mientras escribes: esperan **medio segundo (500ms) sin nueva tecla** antes de disparar la consulta (AJAX, sin recargar la página) — así no se dispara una consulta por cada tecla, pero tampoco hace falta hacer clic en "Filtrar" para ver el resultado. El botón "Filtrar" queda disponible para forzar la consulta al instante (por ejemplo, tras pegar un valor) y "Limpiar" quita todos los filtros activos de un clic.
 
+Mientras esa consulta AJAX está en curso, aparece un indicador de carga (spinner + "Cargando...") superpuesto sobre la tabla — así en tablas grandes, donde la respuesta puede tardar, no se ve un espacio en blanco mientras se espera. El spinner solo se muestra si la respuesta tarda más de 200ms (en tablas chicas, donde la respuesta es casi instantánea, ni se llega a ver — evita el parpadeo).
+
 ## Paginación: cuántos registros mostrar
 
 ```php

@@ -45,3 +45,4 @@ Primera versión.
 - Nueva opción `perPage` (default `20`) + `perPageOptions` (default `[10, 20, 50, 100]`): selector "Por página" y navegación Anterior/Siguiente en el listado. Antes no existía ninguna forma de ver registros más allá de la página 1.
 - Indicador visual (asterisco rojo) junto al label de cualquier campo obligatorio (no-nullable) en el formulario, más una leyenda si aplica a al menos un campo. No aplica a checkboxes.
 - Fix: `AppyCrud::renderListBody()` no capturaba el filtro avanzado activo — los links de "ordenar por columna" generados durante un refresco AJAX lo perdían silenciosamente.
+- Indicador de carga (spinner + "Cargando...") sobre la tabla mientras el filtrado/búsqueda/orden AJAX está en curso — antes el listado quedaba en blanco un instante en tablas grandes. Solo se muestra si la respuesta tarda más de 200ms, para no parpadear en tablas chicas.

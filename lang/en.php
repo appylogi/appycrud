@@ -20,6 +20,7 @@ return [
     'list.search_placeholder' => 'Search...',
     'list.more_actions' => 'More actions',
     'list.empty' => 'No records to show.',
+    'list.loading' => 'Loading...',
     'list.actions' => 'Actions',
     'list.page_of' => 'Page :page of :lastPage',
     'form.save' => 'Save',
