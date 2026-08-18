@@ -54,6 +54,8 @@ Cualquier propiedad pública de `Column` se puede sobreescribir así (`label`, `
 
 Si la validación falla, AppyCrud responde con HTTP 422 y re-renderiza el formulario con los errores — sin perder los datos ya escritos ni el modal abierto.
 
+**Indicador visual de campo obligatorio:** cualquier columna no-nullable (`NOT NULL` en la base de datos, o forzado con `'nullable' => false` en el override) muestra un asterisco rojo (`*`) junto a su label en el formulario, además del atributo HTML `required`. No aplica a checkboxes (`boolean`): un booleano no-nullable casi siempre trae un default y no tiene el mismo sentido de "hay que llenarlo" que el resto de los tipos. Si el formulario tiene al menos un campo obligatorio, aparece una leyenda ("* obligatorio") arriba de los campos.
+
 ## Tipos de campo
 
 `inputType` (override de `TableConfig`, ver arriba) acepta cualquiera de estos nombres. Varios son alias intencionales del mismo widget — por ejemplo `date` y `native_date` se ven exactamente igual — porque no hay un `<input>` nativo distinto para "date" vs "native date" sin JavaScript de terceros, y este proyecto no depende de ninguno.
@@ -79,7 +81,8 @@ Si la validación falla, AppyCrud responde con HTTP 422 y re-renderiza el formul
 | `relational_native` | `<select>` poblado desde otra tabla | Es lo que ya se genera automáticamente para una FK; este nombre es explícito por si prefieres declararlo así. |
 | `multiselect_native` | `<select multiple>` | Se guarda como texto separado por comas en una sola columna (no arma una tabla de unión). |
 | `multiselect_searchable` | checkboxes + filtro de texto | Mismo almacenamiento (CSV) que `multiselect_native`. |
-| `richtext` | editor de texto enriquecido | `<div contenteditable>` + barra de herramientas (negrita/itálica/subrayado/listas), vanilla JS. Ver [Editor de texto enriquecido](#editor-de-texto-enriquecido-richtext). |
+| `richtext` | editor de texto enriquecido (simple) | `<div contenteditable>` + barra minima (negrita/itálica/subrayado/listas), vanilla JS. Ver [Editor de texto enriquecido](#editor-de-texto-enriquecido-richtext). |
+| `richtext_advanced` | editor de texto enriquecido (avanzado) | Igual que `richtext`, con barra extendida: encabezados (H1-H3), enlaces, alineación, deshacer/rehacer. Sigue siendo vanilla JS (`document.execCommand`), sin dependencias nuevas. |
 
 ### Opciones estáticas (`dropdown`/`enum`/`multiselect`)
 
@@ -97,6 +100,8 @@ Cuando el campo no es una llave foránea, dale las opciones a mano:
 ```
 
 Si la columna es un `ENUM(...)` de MySQL, AppyCrud detecta los valores solo y los usa como opciones automáticamente — no hace falta declarar `options` a mano (aunque puedes sobreescribirlas si quieres otros labels).
+
+**Multiselect con muchas opciones:** tanto `multiselect_native` (`<select multiple>`) como `multiselect_searchable` (checkboxes) tienen una altura fija — no crecen sin límite aunque la lista de opciones sea larga; con muchas opciones, hacen scroll interno. Debajo de cada uno aparece un contador ("N seleccionado(s)") que se actualiza en vivo, para no tener que scrollear la lista completa solo para saber cuántos quedaron marcados.
 
 ### Cargar archivos (`file`)
 
@@ -139,18 +144,19 @@ Además, por default, **al eliminar el registro completo también se borra su ar
 
 ```php
 $config = new TableConfig([
-    'notas' => ['inputType' => 'richtext'],
+    'notas' => ['inputType' => 'richtext'],           // barra minima
+    'contenido' => ['inputType' => 'richtext_advanced'], // barra extendida
 ]);
 ```
 
 No requiere ninguna opción adicional (a diferencia de `file`, que necesita `uploadDir`). Cómo funciona:
 
-- El editor es un `<div contenteditable>` con una barra de herramientas mínima: **negrita, itálica, subrayado, lista con viñetas, lista numerada**. Todo con `document.execCommand()` — vanilla JS, sin ningún editor de terceros (TinyMCE, Quill, etc.) ni CDN.
-- **El HTML se sanitiza siempre al guardar** (`Crud\HtmlSanitizer`, basado únicamente en `DOMDocument` — sin dependencias externas). Solo sobreviven las etiquetas `p`, `div`, `br`, `b`, `strong`, `i`, `em`, `u`, `ul`, `ol`, `li`, `a`; cualquier otra etiqueta se elimina (conservando su texto), y `<script>`/`<style>` se descartan por completo (ni siquiera queda su texto). En `<a>` solo sobrevive `href`, y solo si su esquema es `http`, `https`, `mailto` o es una ruta relativa — un `href="javascript:..."` se elimina.
-- En el **listado**, se muestra una vista previa en texto plano (sin etiquetas, truncada) — el HTML completo compitiendo por espacio en una tabla de varias columnas no es legible. En la **vista de solo lectura** y al **editar**, se muestra el HTML ya formateado (negrita, listas, etc. se ven como tales, no como texto con corchetes).
+- El editor es un `<div contenteditable>` con una barra de herramientas. `richtext` (barra mínima): **negrita, itálica, subrayado, lista con viñetas, lista numerada**. `richtext_advanced` (barra extendida) agrega: **encabezados (H1-H3), insertar/quitar enlace, alinear izquierda/centro/derecha, deshacer/rehacer**. Todo con `document.execCommand()` — vanilla JS, sin ningún editor de terceros (TinyMCE, Quill, etc.) ni CDN, en ambos modos. `document.execCommand` está marcado como obsoleto en el estándar pero sigue implementado y soportado en todos los navegadores modernos (Chrome, Firefox, Safari, Edge); si algún día se retira de los navegadores, este es el único punto del código que habría que tocar.
+- **El HTML se sanitiza siempre al guardar**, sin importar el modo (`Crud\HtmlSanitizer`, basado únicamente en `DOMDocument` — sin dependencias externas). Solo sobreviven las etiquetas `p`, `div`, `br`, `b`, `strong`, `i`, `em`, `u`, `ul`, `ol`, `li`, `a`, `h1`, `h2`, `h3`; cualquier otra etiqueta se elimina (conservando su texto), y `<script>`/`<style>` se descartan por completo (ni siquiera queda su texto). En `<a>` solo sobrevive `href`, y solo si su esquema es `http`, `https`, `mailto` o es una ruta relativa — un `href="javascript:..."` se elimina. En `<p>`/`<div>` sobrevive un `style` **solo** si contiene `text-align` con un valor válido (`left`/`center`/`right`/`justify`) — se reescribe entero para no dejar colar ninguna otra propiedad CSS.
+- En el **listado**, se muestra una vista previa en texto plano (sin etiquetas, truncada) — el HTML completo compitiendo por espacio en una tabla de varias columnas no es legible. En la **vista de solo lectura** y al **editar**, se muestra el HTML ya formateado (negrita, listas, encabezados, alineación, etc. se ven como tales, no como texto con corchetes).
 - En las **exportaciones** (CSV/Excel/Markdown) también se exporta como texto plano (sin etiquetas), por la misma razón que en el listado.
 
-**Por qué importa la sanitización:** el valor de un campo `richtext` se renderiza como HTML real (no escapado) en la vista — es lo que permite que la negrita/las listas se vean formateadas. Sin sanitizar, esto sería una vía directa de XSS almacenado (cualquiera que edite el registro podría inyectar `<script>` o atributos `on*`). La sanitización corre **siempre** al guardar (crear y editar), sin importar si el HTML vino del editor de AppyCrud o de otro lado (ej. una integración que llene el campo por su cuenta).
+**Por qué importa la sanitización:** el valor de un campo `richtext`/`richtext_advanced` se renderiza como HTML real (no escapado) en la vista — es lo que permite que la negrita/las listas/los encabezados se vean formateados. Sin sanitizar, esto sería una vía directa de XSS almacenado (cualquiera que edite el registro podría inyectar `<script>` o atributos `on*`). La sanitización corre **siempre** al guardar (crear y editar), sin importar si el HTML vino del editor de AppyCrud o de otro lado (ej. una integración que llene el campo por su cuenta).
 
 ## Relaciones (llaves foráneas)
 
@@ -319,6 +325,8 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `bulkDelete` | `true` | Checkboxes + borrado masivo (respeta `deleteMode`). |
 | `filters` | `true` | Fila de filtros por columna + constructor avanzado AND/OR. |
 | `filterableFields` | `null` | Restringe qué columnas tienen filtro simple y aparecen en el constructor avanzado; `null` = todas las visibles. Ver [Filtros](#filtros-elegir-columnas-y-constructor-avanzado-andor). |
+| `perPage` | `20` | Registros por página al abrir el listado. Ver [Paginación](#paginación-cuántos-registros-mostrar). |
+| `perPageOptions` | `[10, 20, 50, 100]` | Opciones del selector "Por página"; también es la whitelist que valida `?perPage=` en la URL. |
 | `search` | `true` | Búsqueda global sobre las columnas de texto. |
 | `view` | `true` | Acción "Ver" (solo lectura). |
 | `print` | `true` | Imprimir un registro o el listado completo. |
@@ -365,6 +373,8 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 
 Sin esta opción (`null`, el default), se muestran todas las columnas visibles, igual que antes.
 
+**Columnas de llave foránea (FK):** el filtro de una columna FK (ej. `categoria_id`) se renderiza como un `<select>` con las opciones reales de la tabla referenciada (mismas opciones que en el formulario), no como un input de texto — filtrar una FK compara por igualdad contra el **id**, no contra el nombre visible, así que un input de texto contra el label nunca matchearía nada. Lo mismo aplica dentro del constructor avanzado: si eliges un campo FK, el control de "valor" cambia automáticamente a un `<select>` con esas opciones.
+
 ### Constructor de filtro avanzado (AND/OR)
 
 Junto al filtro simple hay un botón **"Filtro avanzado"** que abre un **modal** (`<dialog>` nativo) con filas dinámicas: cada fila es `campo` + `operador` + `valor`, y (salvo la primera) un selector **Y/O** que la conecta con la fila anterior. Las filas se combinan **de izquierda a derecha** — por ejemplo, con 3 filas A, B, C conectadas por Y y O respectivamente, el resultado es `(A Y B) O C`, no la precedencia habitual de SQL (donde `Y` siempre liga más fuerte que `O`). Esto es intencional: en un constructor visual el usuario espera que el orden en que agrega las condiciones sea el orden en que se combinan.
@@ -376,6 +386,19 @@ No requiere ninguna opción adicional — se activa junto con `filters` (`true` 
 ### Filtrado en vivo (debounce)
 
 Tanto la búsqueda global como el filtro simple por columna consultan automáticamente mientras escribes: esperan **medio segundo (500ms) sin nueva tecla** antes de disparar la consulta (AJAX, sin recargar la página) — así no se dispara una consulta por cada tecla, pero tampoco hace falta hacer clic en "Filtrar" para ver el resultado. El botón "Filtrar" queda disponible para forzar la consulta al instante (por ejemplo, tras pegar un valor) y "Limpiar" quita todos los filtros activos de un clic.
+
+## Paginación: cuántos registros mostrar
+
+```php
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'perPage' => 20,                      // default al abrir el listado
+    'perPageOptions' => [10, 20, 50, 100], // opciones del selector "Por página"
+]);
+```
+
+El listado incluye un selector **"Por página"** (con las opciones de `perPageOptions`) y navegación **Anterior/Siguiente**, junto al texto "Página X de Y". Cambiar el valor del selector recarga la página conservando los filtros/búsqueda/orden activos y vuelve a la página 1.
+
+`perPage` en la querystring (`?perPage=50`) **solo se acepta si el valor está en `perPageOptions`** — cualquier otro valor se ignora y se usa el default. Esto es deliberado: sin esta validación, cualquiera podría pedir `?perPage=999999` y forzar una consulta que trae la tabla completa de un solo golpe.
 
 ## Restringir por WHERE (scoping)
 

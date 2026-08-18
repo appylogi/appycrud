@@ -30,6 +30,8 @@ Ninguna de estas clases conoce `$_SERVER`/`$_SESSION` directamente salvo `Csrf` 
 
 `TableConfig::applyTo(Column $column)` itera el array de overrides para esa columna y, por cada llave, hace `property_exists($column, $llave)` + asignacion directa. Esto es deliberadamente generico: **cualquier propiedad publica de `Column` es "override-able"** sin tener que mantener una lista cerrada de opciones soportadas. Al agregar una propiedad nueva a `Column`, ya es automaticamente configurable via `TableConfig` sin tocar `TableConfig`.
 
+`TailwindRenderer::renderField()` deriva el asterisco visual de obligatorio de la misma condicion que ya generaba el atributo HTML `required` (`!$column->nullable`), asi que nunca pueden desincronizarse — no es un flag separado. Se excluye explicitamente `STRATEGY_CHECKBOX`: un booleano no-nullable con un default (`completada TINYINT NOT NULL DEFAULT 0`, tipico) no necesita que el usuario "lo llene", el checkbox ya tiene un estado valido sin tocarlo.
+
 ## `FieldType`: catalogo de tipos de campo
 
 `Column::$inputType` acepta cualquiera de los nombres listados en `FieldType` (`boolean`, `color`, `date`, `dropdown`, `multiselect_native`, etc. — ver la tabla completa en [docs/uso.md](uso.md#tipos-de-campo)). Varios nombres son **alias intencionales** del mismo widget (`date` y `native_date` se renderizan igual) para no forzar una nomenclatura unica.
@@ -60,6 +62,10 @@ Ninguna de estas clases conoce `$_SERVER`/`$_SESSION` directamente salvo `Csrf` 
 - `script`/`style` estan en `STRIP_ENTIRELY_TAGS`: se eliminan **enteros, incluido su texto**. Sin este caso especial, el texto interno de un `<script>alert(1)</script>` sobreviviria como texto plano visible ("alert(1)") tras quitar solo la etiqueta — inofensivo (ya no es codigo ejecutable) pero confuso para el usuario.
 
 No hay ninguna dependencia externa tipo HTMLPurifier — es deliberado, siguiendo la misma filosofia zero-dependencias del resto del proyecto.
+
+**Modo avanzado (`richtext_advanced` / `FieldType::isRichTextAdvanced()`):** `renderRichText()` recibe un flag `$advanced` (resuelto por `TailwindRenderer::renderField()` a partir del `inputType` crudo de la columna, no de la estrategia — `FieldType::strategy()` colapsa `richtext` y `richtext_advanced` a la misma `STRATEGY_RICHTEXT`, asi que hay que mirar el nombre exacto para decidir la barra). Con el flag activo se agregan: un `<select>` de encabezados (`appycrudRichTextFormatBlock()` → `execCommand('formatBlock', false, '<h1>')` etc.), enlace/quitar-enlace (`appycrudRichTextLink()` usa `window.prompt()` para pedir la URL — sin modal propio, para no sumar mas JS del necesario), alineacion (`justifyLeft`/`justifyCenter`/`justifyRight`) y deshacer/rehacer. Sigue siendo 100% `document.execCommand`, cero dependencias nuevas — lo unico que cambia entre modos es cuantos botones se muestran y que `HtmlSanitizer` permite mas superficie (`h1`-`h3`, `style="text-align"`).
+
+`HtmlSanitizer::ALLOWED_TAGS` incluye `h1`/`h2`/`h3` (necesarios para el `formatBlock` del modo avanzado, pero el sanitizador no distingue de donde vino el HTML — cualquier campo `richtext` simple que por algun motivo llegue con un `<h1>` tambien lo conserva). El manejo de `style` es un caso especial deliberadamente estrecho: solo se acepta en `<p>`/`<div>`, y solo se extrae y **reescribe entero** la propiedad `text-align` (`extractTextAlign()`, regex + whitelist de valores `left`/`center`/`right`/`justify`) — nunca se conserva el atributo `style` original tal cual, para que sea imposible colar otra propiedad CSS (`background`, `position`, etc.) agazapada junto a `text-align` en el mismo atributo.
 
 **Rendering diferenciado por contexto** (`FieldType::isRichText()` en cada punto):
 
@@ -109,6 +115,12 @@ Como esos inputs de columna ya no son descendientes del `<form>` en el arbol del
 
 Al reemplazarse `#appycrud-list-body`, los inputs de columna se regeneran desde cero con el valor de `$activeFilters` ya reflejado (no hay estado de JS que preservar) — la unica perdida real es el foco/cursor si el usuario seguia escribiendo justo cuando el debounce dispara, que por diseño ocurre 500ms despues de la ultima tecla (ver mas abajo), o sea con el usuario ya detenido.
 
+### Bug real: el filtro de una columna FK no traia resultados
+
+`renderColumnFilterRow()` (filtro simple por columna) y `renderAdvancedFilterRow()` (filtro avanzado) inicialmente renderizaban **siempre** un `<input type="text">` para el valor a filtrar, salvo el caso especial de `STRATEGY_CHECKBOX`. El problema: `CrudRepository::buildWhereClause()` filtra una columna con `reference !== null` por **igualdad exacta contra el id** (`{columna} = :valor`), no por `LIKE` contra texto — es la misma condicion que ya usaba el filtro simple *antes* de que los filtros se movieran dentro de la tabla, solo que entonces nadie habia notado que el input seguia siendo de texto libre. Si el usuario escribia el nombre visible ("Trabajo") en vez del id numerico (`1`), la comparacion `categoria_id = 'Trabajo'` nunca matcheaba nada.
+
+**Fix:** cuando `$column->reference !== null`, tanto el filtro simple como el avanzado renderizan un `<select>` poblado con las mismas opciones que ya se usan en el formulario (`referenceOptions`, threadeado hasta `renderColumnFilterRow()`/`renderAdvancedFilterPanel()`/`renderAdvancedFilterRow()`) — el usuario elige por *label*, pero el `value` que viaja es el id real. En el filtro avanzado, como el campo se puede cambiar dinamicamente sin recargar (el `<select name="af_field[]">` tiene su propio `onchange`), la logica de "input vs select" tambien vive en JS: `appycrudUpdateFilterValueControl()` lee un catalogo `{columna: [{value, label}, ...]}` embebido como JSON en `data-reference-catalog` sobre `#appycrud-advanced-filter-rows`, y reconstruye el control (`<select>` si el campo elegido esta en el catalogo, `<input>` si no) cada vez que cambia el campo o el operador.
+
 ### `insertDefaults`
 
 Se aplican en `CrudRepository::insert()` con `array_merge($data, $this->insertDefaults)` — es decir, **despues** de filtrar por columnas conocidas, y sobreescribiendo cualquier valor que haya mandado el cliente para esas columnas. Es el complemento de seguridad de `where`: sin esto, un `where` que restringe por `empresa_id` no impide que alguien inserte un registro con un `empresa_id` distinto al suyo.
@@ -135,6 +147,18 @@ En `handleBulkDelete`, `beforeDelete`/`afterDelete` se invocan **por cada id** d
 
 `TailwindRenderer::renderList()` (pagina completa: titulo, toolbar, formulario de filtros) y `renderListBody()` (solo tabla + paginacion, usado por el fetch de filtrado/busqueda AJAX) comparten toda su logica de armado de filas en el metodo privado `renderListInner()`. `AppyCrud::handle()` decide cual devolver segun `$isAjax` en la accion por defecto (`list`).
 
+### Paginacion: `perPage` y navegacion Anterior/Siguiente
+
+Antes de esta version **no existia ninguna forma de navegar mas alla de la pagina 1** — `CrudRepository::paginate()` ya soportaba `$perPage`/`$page` desde el principio, pero `AppyCrud` siempre llamaba con `20` fijo y `TailwindRenderer` nunca generaba un link `?page=N`. Con datasets de mas de 20 filas, cualquier registro despues de la fila 20 era literalmente inalcanzable desde la UI.
+
+`AppyCrud::resolvePerPage($get)` valida `$get['perPage']` contra `$this->perPageOptions` (whitelist) antes de usarlo — un valor fuera de la lista se ignora y cae al default (`$this->perPage`). Esto es deliberado: sin la validacion, `?perPage=999999` forzaria traer la tabla completa de un solo golpe, sin paginar.
+
+`TailwindRenderer::renderPaginationNav()` genera Anterior/Siguiente como `<a href>` normales (navegacion completa, **no** AJAX) — mismo patron que `renderSortLink()`/`renderExportMenu()`: consistente con como ya se comportaba el orden por columna, en vez de sumar una ruta de fetch mas. El selector "Por pagina" es un `<select onchange="...">` con JS minimo (`URLSearchParams` sobre `location.search`, sin depender de otro `<form>`) que fija `perPage` y borra `page` (vuelve a la pagina 1) antes de navegar.
+
+### Bug real: `renderListBody()` no propagaba `$advancedFilters`
+
+Antes de esta version, `AppyCrud::renderListBody()` desestructuraba solo 5 de los 6 valores que devuelve `paginateFromRequest()`, descartando el filtro avanzado activo. El efecto: los links de "ordenar por columna" generados **durante un refresco AJAX** (con un filtro avanzado ya aplicado) perdian ese filtro en su querystring — al hacer clic para ordenar, el filtro avanzado se perdia silenciosamente. Se corrigio capturando los 6 valores y pasando `$advancedFilters` a `renderer->renderListBody()`.
+
 ## `RowAction`: acciones custom por fila
 
 `AppyCrud::handle()` revisa `$this->rowActions` **antes** de entrar al `match()` de acciones internas: si `$_GET['action']` coincide con el `name` de alguna `RowAction`, se ejecuta su `handler` y ese resultado se retorna directo — el `match()` interno ni se evalua. Esto significa que un `name` de `RowAction` puede, en teoria, pisar una accion interna (`view`, `edit`, etc.) si se usa el mismo nombre; no hay validacion contra eso, es responsabilidad del integrador elegir nombres que no choquen.
@@ -148,6 +172,12 @@ En `handleBulkDelete`, `beforeDelete`/`afterDelete` se invocan **por cada id** d
 ### El boton de aceptar del dialog de confirmacion es dinamico
 
 El mismo `<dialog id="appycrud-confirm-dialog">` se reutiliza para *todas* las confirmaciones (borrar una fila, borrado masivo, o una `RowAction` con `confirm`). Como cada una necesita un texto distinto en el boton de aceptar ("Eliminar" vs. el label de la `RowAction`, ej. "Archivar"), el boton no tiene un label fijo en el HTML — `appycrudConfirmAction(message, action, label)` le asigna `label` (o el generico `data-default-label` = `confirm.accept` si no se pasa uno) cada vez que se abre. Si agregas un nuevo punto de confirmacion, asegurate de pasar el `label` correcto a `appycrudConfirmAction()`/`appycrudConfirmSubmit()`/`appycrudBulkDelete()`, o el boton mostrara el texto de la ultima confirmacion que se disparo.
+
+### Bug real: el modal de crear/editar se salia de la pantalla con listas largas (multiselect)
+
+Con una columna `multiselect_native`/`multiselect_searchable` con muchas opciones, o simplemente un formulario con varios campos, el contenido de `#appycrud-dialog` podia superar el alto de la ventana. La intuicion natural es que un `<dialog>` deberia recortarse solo (los navegadores le aplican un `max-height` por default), pero ese `max-height` de la hoja de estilos del navegador (UA stylesheet) **gana por origen de cascada** sobre una clase de utilidad de Tailwind (`max-h-[85vh]`) sin `!important`, sin importar la especificidad — un `getComputedStyle` mostraba el `max-height` del navegador (`calc(100% - Npx)`, el valor exacto varia por navegador) en vez del `85vh` esperado. Se corrigio con el prefijo `!` de Tailwind (`!max-h-[85vh] !overflow-y-auto`), que emite `max-height:85vh!important` — verificado con `getComputedStyle` en un navegador real (Chromium via MCP): sin el `!`, `maxHeight` devolvia el valor del navegador; con el, `612px` en un viewport de `720px` (85% exacto). El mismo fix se aplico al dialog del filtro avanzado (`#appycrud-advanced-filter`) por la misma razon — puede acumular muchas filas de condiciones.
+
+Ademas de esto, `renderMultiselect()`/`renderMultiselectSearchable()` tienen una altura fija (`h-40`/`max-h-48`) que no depende de cuantas opciones haya — la lista larga hace scroll *dentro* de esa altura fija, nunca estira el `<select>`/contenedor mas alla de lo declarado. Un contador de seleccionados (`appycrudUpdateMultiselectCount()`/`appycrudUpdateMultiselectCheckboxCount()`, disparado en cada `change`) compensa que la lista siga siendo larga: no hace falta scrollearla entera para saber cuantas quedaron marcadas.
 
 ## Carga de archivos
 

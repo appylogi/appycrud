@@ -129,9 +129,11 @@ $config = new TableConfig([
         ['value' => 'viaje', 'label' => 'Viaje'],
     ]],
     'adjunto' => ['label' => 'Adjunto', 'inputType' => 'file'],
-    // 'richtext': editor vanilla (negrita/italica/subrayado/listas), sanitizado con
-    // Crud\HtmlSanitizer al guardar (whitelist de etiquetas, sin scripts/atributos peligrosos).
-    'notas' => ['label' => 'Notas', 'inputType' => 'richtext'],
+    // 'richtext_advanced': editor vanilla con barra extendida (encabezados, enlaces,
+    // alineacion, deshacer/rehacer) — 'richtext' (sin '_advanced') da la barra minima
+    // (negrita/italica/subrayado/listas). Ambos se sanitizan igual al guardar
+    // (Crud\HtmlSanitizer: whitelist de etiquetas, sin scripts/atributos peligrosos).
+    'notas' => ['label' => 'Notas', 'inputType' => 'richtext_advanced'],
 ]);
 
 $locale = $_GET['lang'] ?? 'es';

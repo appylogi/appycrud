@@ -15,7 +15,8 @@ Pensado como alternativa libre y descargable a herramientas como [GroceryCRUD](h
 - **Borrado masivo**, **clonar** (parametrizable: excluir columnas, agregar sufijo), **ver** de solo lectura, **imprimir** (registro o listado completo).
 - **Filtro por columna + búsqueda global + orden**, todo por AJAX con debounce (no recarga la página, sigue siendo consulta server-side — no se pierden resultados en tablas grandes con paginación). **Constructor de filtro avanzado** (filas dinámicas combinadas con AND/OR) y `filterableFields` para limitar qué columnas se pueden filtrar en tablas anchas.
 - **Exportar** a CSV, Excel (.xls) y Markdown, respetando los filtros activos.
-- **25 tipos de campo** (`boolean`, `dropdown_search`, `multiselect_native`, `password_toggle`, `relational_native`, `richtext`, etc.) — ver [catálogo completo](docs/uso.md#tipos-de-campo).
+- **26 tipos de campo** (`boolean`, `dropdown_search`, `multiselect_native`, `password_toggle`, `relational_native`, `richtext`/`richtext_advanced`, etc.) — ver [catálogo completo](docs/uso.md#tipos-de-campo).
+- **Paginación configurable**: cuántos registros mostrar por página (`perPage`), con selector en el listado y navegación Anterior/Siguiente.
 - **Scoping** vía `where`/`whereIn` (multi-tenant, "solo mis registros") aplicado a listado, exportar, ver, editar y eliminar — no solo cosmético en el listado.
 - **Control de campos**: qué columnas se pueden insertar y cuáles editar, por separado.
 - **Muchos a muchos** vía tabla pivote (`ManyToMany`), sincronizada automáticamente al guardar.

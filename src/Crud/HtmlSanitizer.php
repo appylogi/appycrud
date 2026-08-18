@@ -21,10 +21,12 @@ use DOMXPath;
  */
 class HtmlSanitizer
 {
-    private const ALLOWED_TAGS = ['p', 'div', 'br', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li', 'a'];
+    private const ALLOWED_TAGS = ['p', 'div', 'br', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li', 'a', 'h1', 'h2', 'h3'];
     private const ALLOWED_SCHEMES = ['http', 'https', 'mailto'];
     /** Su contenido no es HTML de verdad (es codigo/CSS); se descarta entero, no solo la etiqueta, para no dejarlo como texto visible. */
     private const STRIP_ENTIRELY_TAGS = ['script', 'style'];
+    /** Unica propiedad CSS permitida en 'style' (solo en p/div) — la genera execCommand('justify*') del editor avanzado. */
+    private const ALLOWED_ALIGNMENTS = ['left', 'center', 'right', 'justify'];
 
     public static function sanitize(string $html): string
     {
@@ -87,9 +89,32 @@ class HtmlSanitizer
                     continue;
                 }
 
+                if (($tag === 'p' || $tag === 'div') && $attribute->name === 'style') {
+                    $alignment = self::extractTextAlign($attribute->value);
+
+                    if ($alignment !== null) {
+                        // Se reescribe entero (nunca se conserva el 'style' original tal cual)
+                        // para que sea imposible colar otra propiedad CSS agazapada junto a text-align.
+                        $child->setAttribute('style', 'text-align: ' . $alignment . ';');
+                        continue;
+                    }
+                }
+
                 $child->removeAttribute($attribute->name);
             }
         }
+    }
+
+    /** Extrae SOLO el valor de 'text-align' de un 'style' crudo, validado contra la lista blanca; null si no hay una propiedad reconocida. */
+    private static function extractTextAlign(string $style): ?string
+    {
+        if (preg_match('/text-align\s*:\s*([a-z]+)/i', $style, $matches) !== 1) {
+            return null;
+        }
+
+        $value = strtolower($matches[1]);
+
+        return in_array($value, self::ALLOWED_ALIGNMENTS, true) ? $value : null;
     }
 
     /** Sin esquema (relativa, "#ancla", vacia) se considera segura — no puede ejecutar codigo. Con esquema, debe estar en la lista blanca. */

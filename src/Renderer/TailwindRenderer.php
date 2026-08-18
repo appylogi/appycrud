@@ -49,6 +49,7 @@ class TailwindRenderer
         ?string $uploadUrlPrefix = null,
         ?array $filterableFields = null,
         array $advancedFilters = [],
+        array $perPageOptions = [10, 20, 50, 100],
     ): string {
         $t = $this->translator;
         $filtersEnabled = $features['filters'] ?? true;
@@ -57,7 +58,7 @@ class TailwindRenderer
         $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
         $modal = $this->renderModalShell($csrfToken);
         $searchAndFilters = ($filtersEnabled || $searchEnabled)
-            ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled, $filterableFields, $advancedFilters)
+            ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled, $filterableFields, $advancedFilters, $referenceOptions)
             : '';
 
         $toolbar = '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>';
@@ -68,7 +69,7 @@ class TailwindRenderer
 
         $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
 
-        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields);
+        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields, $perPageOptions);
 
         return <<<HTML
         <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
@@ -105,8 +106,9 @@ class TailwindRenderer
         ?string $uploadUrlPrefix = null,
         array $advancedFilters = [],
         ?array $filterableFields = null,
+        array $perPageOptions = [10, 20, 50, 100],
     ): string {
-        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields);
+        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields, $perPageOptions);
     }
 
     private function renderListInner(
@@ -125,6 +127,7 @@ class TailwindRenderer
         ?string $uploadUrlPrefix = null,
         array $advancedFilters = [],
         ?array $filterableFields = null,
+        array $perPageOptions = [10, 20, 50, 100],
     ): string {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
@@ -152,7 +155,7 @@ class TailwindRenderer
         $headers .= '<th class="px-4 py-2 text-right text-xs font-semibold uppercase text-gray-600 print:hidden">' . $this->e($t->t('list.actions')) . '</th>';
 
         $filterHeaderRow = ($features['filters'] ?? true)
-            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields)
+            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields, $referenceOptions)
             : '';
 
         $bodyRows = '';
@@ -188,7 +191,7 @@ class TailwindRenderer
             $bodyRows = '<tr><td colspan="' . $colspan . '" class="px-4 py-6 text-center text-sm text-gray-500">' . $this->e($t->t('list.empty')) . '</td></tr>';
         }
 
-        $pageInfo = $t->t('list.page_of', ['page' => $pagination['page'], 'lastPage' => $pagination['lastPage']]);
+        $paginationNav = $this->renderPaginationNav($baseUrl, $activeFilters, $search, $orderBy, $orderDir, $advancedFilters, $pagination, $perPageOptions);
 
         return <<<HTML
         <div class="overflow-x-auto bg-white rounded-lg shadow">
@@ -197,8 +200,58 @@ class TailwindRenderer
                 <tbody>{$bodyRows}</tbody>
             </table>
         </div>
-        <p class="mt-3 text-sm text-gray-500 print:hidden">{$this->e($pageInfo)}</p>
+        {$paginationNav}
         HTML;
+    }
+
+    /**
+     * Anterior/Siguiente + numero de pagina + selector de "registros por
+     * pagina", todo por navegacion normal (como el orden por columna), no
+     * AJAX — consistente con renderSortLink()/renderExportMenu(). El
+     * selector usa JS minimo (URLSearchParams) para no depender de otro
+     * <form> ni duplicar la logica de buildListQuery() del lado del cliente.
+     * @param int[] $perPageOptions
+     */
+    private function renderPaginationNav(string $baseUrl, array $activeFilters, string $search, string $orderBy, string $orderDir, array $advancedFilters, array $pagination, array $perPageOptions): string
+    {
+        $t = $this->translator;
+        $page = (int) $pagination['page'];
+        $lastPage = (int) $pagination['lastPage'];
+        $perPage = (int) $pagination['perPage'];
+
+        $prevUrl = $this->e($baseUrl) . '?' . $this->buildListQuery($activeFilters, $search, $orderBy, $orderDir, $advancedFilters, max(1, $page - 1), $perPage);
+        $nextUrl = $this->e($baseUrl) . '?' . $this->buildListQuery($activeFilters, $search, $orderBy, $orderDir, $advancedFilters, min($lastPage, $page + 1), $perPage);
+
+        $prevDisabled = $page <= 1;
+        $nextDisabled = $page >= $lastPage;
+        $navClass = 'inline-flex items-center px-2 py-1 rounded-md border text-sm';
+
+        $prevLink = $prevDisabled
+            ? '<span class="' . $navClass . ' border-gray-200 text-gray-300 cursor-not-allowed">' . $this->e($t->t('list.prev_page')) . '</span>'
+            : '<a href="' . $prevUrl . '" class="' . $navClass . ' border-gray-300 text-gray-700 hover:bg-gray-50">' . $this->e($t->t('list.prev_page')) . '</a>';
+
+        $nextLink = $nextDisabled
+            ? '<span class="' . $navClass . ' border-gray-200 text-gray-300 cursor-not-allowed">' . $this->e($t->t('list.next_page')) . '</span>'
+            : '<a href="' . $nextUrl . '" class="' . $navClass . ' border-gray-300 text-gray-700 hover:bg-gray-50">' . $this->e($t->t('list.next_page')) . '</a>';
+
+        $perPageSelect = '';
+        if ($perPageOptions !== []) {
+            $options = '';
+            foreach ($perPageOptions as $option) {
+                $options .= '<option value="' . $option . '"' . ($option === $perPage ? ' selected' : '') . '>' . $option . '</option>';
+            }
+            $perPageSelect = '<label class="flex items-center gap-1.5 text-sm text-gray-500">'
+                . $this->e($t->t('list.per_page'))
+                . '<select onchange="var p=new URLSearchParams(location.search);p.set(\'perPage\',this.value);p.delete(\'page\');location.search=p.toString();" class="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white">' . $options . '</select>'
+                . '</label>';
+        }
+
+        $pageInfo = $t->t('list.page_of', ['page' => $page, 'lastPage' => $lastPage]);
+
+        return '<div class="mt-3 flex items-center justify-between flex-wrap gap-3 print:hidden">'
+            . '<p class="text-sm text-gray-500">' . $this->e($pageInfo) . '</p>'
+            . '<div class="flex items-center gap-3">' . $perPageSelect . '<div class="flex items-center gap-2">' . $prevLink . $nextLink . '</div></div>'
+            . '</div>';
     }
 
     /**
@@ -213,8 +266,9 @@ class TailwindRenderer
      * @param Column[] $columns
      * @param array<string, string> $activeFilters
      * @param string[]|null $filterableFields
+     * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions
      */
-    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields): string
+    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields, array $referenceOptions = []): string
     {
         $cells = $bulkDeleteEnabled ? '<th class="px-4 py-1.5"></th>' : '';
 
@@ -229,7 +283,19 @@ class TailwindRenderer
             $current = $activeFilters[$column->name] ?? '';
             $onEvent = 'appycrudScheduleFilter(document.getElementById(\'appycrud-filter-form\'))';
 
-            if (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
+            if ($column->reference !== null) {
+                // FK: el filtro compara por IGUALDAD contra el id real (ver
+                // CrudRepository::buildWhereClause), no por texto — un <input>
+                // de texto contra el nombre visible nunca matchea nada. El
+                // <select> deja elegir por label pero envia el id.
+                $input = '<select form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" onchange="' . $onEvent . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white">'
+                    . '<option value="">-</option>';
+                foreach ($referenceOptions[$column->name] ?? [] as $option) {
+                    $optionValue = (string) $option['value'];
+                    $input .= '<option value="' . $this->e($optionValue) . '"' . ($current === $optionValue ? ' selected' : '') . '>' . $this->e((string) $option['label']) . '</option>';
+                }
+                $input .= '</select>';
+            } elseif (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
                 $input = '<select form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" onchange="' . $onEvent . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white">'
                     . '<option value="">-</option>'
                     . '<option value="1"' . ($current === '1' ? ' selected' : '') . '>Si</option>'
@@ -303,7 +369,7 @@ class TailwindRenderer
 
     /** @return string querystring (sin "?") con filtros + busqueda + orden */
     /** @param array<int, array{field: string, op: string, value: mixed, conn: string}> $advancedFilters */
-    private function buildListQuery(array $activeFilters, string $search, string $orderBy, string $orderDir, array $advancedFilters = []): string
+    private function buildListQuery(array $activeFilters, string $search, string $orderBy, string $orderDir, array $advancedFilters = [], int $page = 1, ?int $perPage = null): string
     {
         $params = [];
 
@@ -327,6 +393,14 @@ class TailwindRenderer
             $params['af_op'][] = $row['op'];
             $params['af_value'][] = $row['value'];
             $params['af_conn'][] = $row['conn'];
+        }
+
+        if ($page > 1) {
+            $params['page'] = $page;
+        }
+
+        if ($perPage !== null) {
+            $params['perPage'] = $perPage;
         }
 
         return http_build_query($params);
@@ -452,7 +526,7 @@ class TailwindRenderer
      * sus inputs no pueden ser descendientes reales de este <form>, que vive
      * fuera de #appycrud-list-body y por eso sobrevive a esos reemplazos).
      */
-    private function renderFilterRow(TableSchema $schema, string $baseUrl, array $activeFilters, string $search, string $orderBy, string $orderDir, bool $filtersEnabled, bool $searchEnabled, ?array $filterableFields = null, array $advancedFilters = []): string
+    private function renderFilterRow(TableSchema $schema, string $baseUrl, array $activeFilters, string $search, string $orderBy, string $orderDir, bool $filtersEnabled, bool $searchEnabled, ?array $filterableFields = null, array $advancedFilters = [], array $referenceOptions = []): string
     {
         $t = $this->translator;
 
@@ -469,7 +543,7 @@ class TailwindRenderer
             ? '<input type="hidden" name="orderBy" value="' . $this->e($orderBy) . '"><input type="hidden" name="orderDir" value="' . $this->e($orderDir) . '">'
             : '';
 
-        $advancedPanel = $filtersEnabled ? $this->renderAdvancedFilterPanel($filterableColumns, $advancedFilters) : '';
+        $advancedPanel = $filtersEnabled ? $this->renderAdvancedFilterPanel($filterableColumns, $advancedFilters, $referenceOptions) : '';
         $advancedToggle = $filtersEnabled
             ? '<button type="button" onclick="appycrudOpenAdvancedFilter()" class="inline-flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50">' . $this->icon('sliders') . '<span>' . $this->e($t->t('list.advanced_filter')) . '</span></button>'
             : '';
@@ -504,14 +578,32 @@ class TailwindRenderer
         'is_null' => 'list.op_is_null', 'is_not_null' => 'list.op_is_not_null',
     ];
 
-    /** @param Column[] $filterableColumns */
-    private function renderAdvancedFilterPanel(array $filterableColumns, array $activeRows): string
+    /**
+     * @param Column[] $filterableColumns
+     * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions
+     */
+    private function renderAdvancedFilterPanel(array $filterableColumns, array $activeRows, array $referenceOptions = []): string
     {
         $t = $this->translator;
 
+        // Catalogo campo (FK) -> opciones, para que appycrudUpdateFilterValueControl()
+        // sepa cuando debe mostrar un <select> en vez de un <input> de texto —
+        // mismo motivo que en renderColumnFilterRow(): filtrar una FK compara
+        // por igualdad contra el id, no contra el texto visible.
+        $referenceCatalog = [];
+        foreach ($filterableColumns as $column) {
+            if ($column->reference !== null) {
+                $referenceCatalog[$column->name] = array_map(
+                    fn ($o) => ['value' => (string) $o['value'], 'label' => (string) $o['label']],
+                    $referenceOptions[$column->name] ?? [],
+                );
+            }
+        }
+        $referenceCatalogJson = $this->e(json_encode($referenceCatalog, JSON_UNESCAPED_UNICODE) ?: '{}');
+
         // Plantilla para filas agregadas por JS (sin valores activos, sin conector visible);
         // va en un <template> para que appycrudAddFilterRow() la clone sin depender de un fetch.
-        $templateRow = $this->renderAdvancedFilterRow($filterableColumns, ['field' => '', 'op' => 'contains', 'value' => '', 'conn' => 'AND'], false);
+        $templateRow = $this->renderAdvancedFilterRow($filterableColumns, ['field' => '', 'op' => 'contains', 'value' => '', 'conn' => 'AND'], false, $referenceOptions);
 
         // Si no hay filas activas (primera vez que se abre), se arranca con una
         // fila vacia visible en vez de un panel en blanco sin nada que editar.
@@ -519,7 +611,7 @@ class TailwindRenderer
 
         $rowsHtml = '';
         foreach ($initialRows as $index => $row) {
-            $rowsHtml .= $this->renderAdvancedFilterRow($filterableColumns, $row, $index > 0);
+            $rowsHtml .= $this->renderAdvancedFilterRow($filterableColumns, $row, $index > 0, $referenceOptions);
         }
 
         $addLabel = $this->e($t->t('list.advanced_filter_add_row'));
@@ -527,14 +619,14 @@ class TailwindRenderer
         $titleLabel = $this->e($t->t('list.advanced_filter'));
 
         return <<<HTML
-        <dialog id="appycrud-advanced-filter" class="rounded-lg shadow-xl p-0 w-full max-w-3xl backdrop:bg-black/50">
+        <dialog id="appycrud-advanced-filter" class="rounded-lg shadow-xl p-0 w-full max-w-3xl !max-h-[85vh] !overflow-y-auto backdrop:bg-black/50">
             <div class="p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-base font-semibold text-gray-900">{$titleLabel}</h2>
                     <button type="button" onclick="appycrudCloseAdvancedFilter()" class="text-gray-400 hover:text-gray-700">{$this->icon('x')}</button>
                 </div>
                 <template id="appycrud-af-row-template">{$templateRow}</template>
-                <div id="appycrud-advanced-filter-rows" class="space-y-3">{$rowsHtml}</div>
+                <div id="appycrud-advanced-filter-rows" class="space-y-3" data-reference-catalog="{$referenceCatalogJson}">{$rowsHtml}</div>
                 <div class="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-gray-100">
                     <button type="button" onclick="appycrudAddFilterRow()" class="inline-flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700">{$this->icon('plus')}<span>{$addLabel}</span></button>
                     <button type="button" onclick="appycrudApplyAdvancedFilter()" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-4 py-2 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$applyLabel}</span></button>
@@ -547,8 +639,9 @@ class TailwindRenderer
     /**
      * @param Column[] $filterableColumns
      * @param array{field: string, op: string, value: mixed, conn: string} $row
+     * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions
      */
-    private function renderAdvancedFilterRow(array $filterableColumns, array $row, bool $showConnector): string
+    private function renderAdvancedFilterRow(array $filterableColumns, array $row, bool $showConnector, array $referenceOptions = []): string
     {
         $t = $this->translator;
 
@@ -557,14 +650,18 @@ class TailwindRenderer
             . '<option value="OR"' . ($row['conn'] === 'OR' ? ' selected' : '') . '>' . $this->e($t->t('list.conn_or')) . '</option>'
             . '</select>';
 
-        $fieldSelect = '<select name="af_field[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[9rem]"><option value="">--</option>';
+        $fieldColumn = null;
+        $fieldSelect = '<select name="af_field[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[9rem]" onchange="appycrudUpdateFilterValueControl(this.closest(\'.appycrud-af-row\'))"><option value="">--</option>';
         foreach ($filterableColumns as $column) {
             $selected = $column->name === $row['field'] ? ' selected' : '';
+            if ($selected !== '') {
+                $fieldColumn = $column;
+            }
             $fieldSelect .= '<option value="' . $this->e($column->name) . '"' . $selected . '>' . $this->e($column->label) . '</option>';
         }
         $fieldSelect .= '</select>';
 
-        $opSelect = '<select name="af_op[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[10rem]" onchange="appycrudToggleFilterValue(this)">';
+        $opSelect = '<select name="af_op[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[10rem]" onchange="appycrudUpdateFilterValueControl(this.closest(\'.appycrud-af-row\'))">';
         foreach (self::ADVANCED_FILTER_OPERATOR_LABELS as $value => $labelKey) {
             $selected = $value === $row['op'] ? ' selected' : '';
             $opSelect .= '<option value="' . $value . '"' . $selected . '>' . $this->e($t->t($labelKey)) . '</option>';
@@ -572,12 +669,26 @@ class TailwindRenderer
         $opSelect .= '</select>';
 
         $valueHidden = in_array($row['op'], ['is_null', 'is_not_null'], true) ? ' style="display:none"' : '';
+        $valueControl = ($fieldColumn !== null && $fieldColumn->reference !== null)
+            ? $this->renderAdvancedFilterValueSelect((string) $row['value'], $referenceOptions[$fieldColumn->name] ?? [], $valueHidden)
+            : '<input type="text" name="af_value[]" value="' . $this->e((string) $row['value']) . '" class="border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 min-w-[9rem]"' . $valueHidden . '>';
 
         return '<div class="flex flex-wrap items-center gap-2 appycrud-af-row">'
-            . $connSelect . $fieldSelect . $opSelect
-            . '<input type="text" name="af_value[]" value="' . $this->e((string) $row['value']) . '" class="border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 min-w-[9rem]"' . $valueHidden . '>'
+            . $connSelect . $fieldSelect . $opSelect . $valueControl
             . '<button type="button" onclick="appycrudRemoveFilterRow(this)" class="shrink-0 text-gray-400 hover:text-red-600 p-1" title="' . $this->e($t->t('list.advanced_filter_remove_row')) . '">' . $this->icon('x') . '</button>'
             . '</div>';
+    }
+
+    /** @param array<int, array{value: mixed, label: string}> $options */
+    private function renderAdvancedFilterValueSelect(string $currentValue, array $options, string $hiddenAttr): string
+    {
+        $html = '<select name="af_value[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[9rem]"' . $hiddenAttr . '><option value="">--</option>';
+        foreach ($options as $option) {
+            $optionValue = (string) $option['value'];
+            $html .= '<option value="' . $this->e($optionValue) . '"' . ($currentValue === $optionValue ? ' selected' : '') . '>' . $this->e((string) $option['label']) . '</option>';
+        }
+
+        return $html . '</select>';
     }
 
     /**
@@ -601,7 +712,7 @@ class TailwindRenderer
         @keyframes appycrud-pop { from { opacity: 0; transform: scale(.95) translateY(-8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         @keyframes appycrud-backdrop-fade { from { opacity: 0; } to { opacity: 1; } }
         </style>
-        <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-2xl backdrop:bg-black/50">
+        <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-2xl !max-h-[85vh] !overflow-y-auto backdrop:bg-black/50">
             <div id="appycrud-dialog-content"></div>
         </dialog>
         <dialog id="appycrud-confirm-dialog" class="rounded-lg shadow-xl p-6 w-full max-w-sm backdrop:bg-black/50">
@@ -642,6 +753,20 @@ class TailwindRenderer
             document.getElementById(editorId + '-input').value = editor.innerHTML;
         }
 
+        function appycrudRichTextFormatBlock(editorId, tag) {
+            document.getElementById(editorId).focus();
+            document.execCommand('formatBlock', false, tag ? '<' + tag + '>' : '<p>');
+            appycrudRichTextSync(editorId);
+        }
+
+        function appycrudRichTextLink(editorId) {
+            var editor = document.getElementById(editorId);
+            editor.focus();
+            var url = window.prompt('URL:', 'https://');
+            if (url) { document.execCommand('createLink', false, url); }
+            appycrudRichTextSync(editorId);
+        }
+
         function appycrudSyncDatalist(input) {
             var hidden = input.nextElementSibling;
             var list = document.getElementById(input.getAttribute('list'));
@@ -657,6 +782,18 @@ class TailwindRenderer
             input.closest('[data-appycrud-multiselect]').querySelectorAll('.appycrud-ms-option').forEach(function (opt) {
                 opt.style.display = opt.textContent.toLowerCase().includes(term) ? '' : 'none';
             });
+        }
+
+        function appycrudUpdateMultiselectCount(select) {
+            var caption = document.querySelector('[data-multiselect-count="' + select.id + '"]');
+            if (caption) { caption.textContent = select.selectedOptions.length + caption.textContent.replace(/^\d+/, ''); }
+        }
+
+        function appycrudUpdateMultiselectCheckboxCount(container) {
+            var wrap = container.closest('[data-appycrud-multiselect]');
+            var caption = wrap.querySelector('[data-checkbox-count]');
+            var checked = wrap.querySelectorAll('input[type="checkbox"]:checked').length;
+            if (caption) { caption.textContent = checked + caption.textContent.replace(/^\d+/, ''); }
         }
         function appycrudSubmitForm(event, form) {
             event.preventDefault();
@@ -746,10 +883,51 @@ class TailwindRenderer
             }
         }
 
-        function appycrudToggleFilterValue(select) {
-            var input = select.closest('.appycrud-af-row').querySelector('input[name="af_value[]"]');
-            var hide = select.value === 'is_null' || select.value === 'is_not_null';
-            input.style.display = hide ? 'none' : '';
+        // Reconstruye el control de valor de una fila del filtro avanzado segun
+        // el campo y operador elegidos: <select> con las opciones reales si el
+        // campo es una llave foranea (filtrar una FK compara por igualdad
+        // contra el id, no contra el texto visible — ver renderColumnFilterRow()
+        // para el mismo caso en el filtro simple), <input> de texto en cualquier
+        // otro caso, y oculto del todo para los operadores "es/no es vacio".
+        function appycrudUpdateFilterValueControl(row) {
+            var fieldSelect = row.querySelector('select[name="af_field[]"]');
+            var opSelect = row.querySelector('select[name="af_op[]"]');
+            var current = row.querySelector('[name="af_value[]"]');
+            var catalog = JSON.parse(document.getElementById('appycrud-advanced-filter-rows').dataset.referenceCatalog || '{}');
+            var options = catalog[fieldSelect.value];
+            var hide = opSelect.value === 'is_null' || opSelect.value === 'is_not_null';
+            var currentValue = current.value;
+
+            var replacement;
+            if (options) {
+                replacement = document.createElement('select');
+                replacement.className = 'border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[9rem]';
+                var blank = document.createElement('option');
+                blank.value = '';
+                blank.textContent = '--';
+                replacement.appendChild(blank);
+                options.forEach(function (opt) {
+                    var el = document.createElement('option');
+                    el.value = opt.value;
+                    el.textContent = opt.label;
+                    if (opt.value === currentValue) { el.selected = true; }
+                    replacement.appendChild(el);
+                });
+            } else if (current.tagName === 'SELECT') {
+                replacement = document.createElement('input');
+                replacement.type = 'text';
+                replacement.className = 'border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 min-w-[9rem]';
+                replacement.value = currentValue;
+            } else {
+                replacement = current;
+            }
+
+            replacement.name = 'af_value[]';
+            replacement.style.display = hide ? 'none' : '';
+
+            if (replacement !== current) {
+                current.replaceWith(replacement);
+            }
         }
 
         function appycrudUpdateBulkUI() {
@@ -872,6 +1050,7 @@ class TailwindRenderer
 
         $fields = '';
         $hasFileField = false;
+        $hasRequiredField = false;
         foreach ($schema->visibleColumns() as $column) {
             if ($column->isPrimaryKey || $column->readOnly) {
                 continue;
@@ -883,6 +1062,10 @@ class TailwindRenderer
 
             if (FieldType::isFile($column->inputType ?? '')) {
                 $hasFileField = true;
+            }
+
+            if (!$column->nullable && FieldType::strategy($column->inputType ?? '') !== FieldType::STRATEGY_CHECKBOX) {
+                $hasRequiredField = true;
             }
 
             $fields .= $this->renderField(
@@ -902,11 +1085,15 @@ class TailwindRenderer
             ? '<div class="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">' . $this->e($generalError) . '</div>'
             : '';
         $enctype = $hasFileField ? ' enctype="multipart/form-data"' : '';
+        $requiredLegend = $hasRequiredField
+            ? '<p class="text-xs text-gray-500 mb-3"><span class="text-red-500">*</span> ' . $this->e($t->t('form.required_mark')) . '</p>'
+            : '';
 
         return <<<HTML
         <div class="p-6">
             <h1 class="text-xl font-bold text-gray-900 mb-4">{$this->e($title)}</h1>
             {$generalErrorHtml}
+            {$requiredLegend}
             <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="space-y-4"{$enctype} onsubmit="return appycrudSubmitForm(event, this)">
                 {$csrfField}
                 {$fields}
@@ -1082,7 +1269,14 @@ class TailwindRenderer
             return '<input type="hidden" name="' . $name . '" value="' . $this->e($value) . '">';
         }
 
-        $label = '<label class="block text-sm font-medium text-gray-700 mb-1">' . $this->e($column->label) . '</label>';
+        // El checkbox no lleva marca de obligatorio: no-nullable en un boolean
+        // (0/1) no tiene el mismo sentido de "hay que llenarlo" que en el resto
+        // de los tipos — casi siempre viene con un default y da igual dejarlo
+        // sin tocar.
+        $requiredMark = ($required !== '' && $strategy !== FieldType::STRATEGY_CHECKBOX)
+            ? '<span class="text-red-500 ml-0.5" title="' . $this->e($this->translator->t('form.required_mark')) . '">*</span>'
+            : '';
+        $label = '<label class="block text-sm font-medium text-gray-700 mb-1">' . $this->e($column->label) . $requiredMark . '</label>';
 
         $input = match ($strategy) {
             FieldType::STRATEGY_TEXTAREA => '<textarea name="' . $name . '" class="' . $baseClass . $errorClass . '" rows="4"' . $required . '>' . $this->e($value) . '</textarea>',
@@ -1101,7 +1295,7 @@ class TailwindRenderer
             FieldType::STRATEGY_MULTISELECT => $this->renderMultiselect($name, $value, $optionSource, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT_SEARCHABLE => $this->renderMultiselectSearchable($name, $value, $optionSource),
             FieldType::STRATEGY_FILE => $this->renderFileInput($name, $value, $baseClass . $errorClass, $required !== '' && $value === ''),
-            FieldType::STRATEGY_RICHTEXT => $this->renderRichText($name, $value, $errorClass),
+            FieldType::STRATEGY_RICHTEXT => $this->renderRichText($name, $value, $errorClass, FieldType::isRichTextAdvanced($column->inputType ?? '')),
             default => $this->renderTextLikeInput('text', $name, $value, $baseClass . $errorClass, $required, $column->maxLength),
         };
 
@@ -1153,33 +1347,53 @@ class TailwindRenderer
 
     /**
      * Editor de texto enriquecido vanilla: un <div contenteditable> con una
-     * barra de herramientas minima (negrita/italica/subrayado/listas) via
-     * document.execCommand, y un <input type="hidden"> que es lo que
+     * barra de herramientas (negrita/italica/subrayado/listas — y en modo
+     * "avanzado" tambien encabezados/enlaces/alineacion/deshacer-rehacer)
+     * via document.execCommand, y un <input type="hidden"> que es lo que
      * realmente viaja en el submit — se sincroniza en cada 'input' del div.
      * $value ya viene sanitizado (ver Crud\HtmlSanitizer::sanitize(), aplicado
      * al guardar), por eso se inyecta tal cual como HTML del contenteditable,
      * no escapado como el resto de los campos de texto.
+     *
+     * "Avanzado" NO agrega ninguna dependencia externa: sigue siendo
+     * document.execCommand puro. Lo unico que cambia es cuantos botones se
+     * muestran y que Crud\HtmlSanitizer permite mas etiquetas/atributos
+     * (h1-h3, y style="text-align" en p/div) para que el HTML de esos
+     * comandos sobreviva la sanitizacion al guardar.
      */
-    private function renderRichText(string $name, string $value, string $errorClass): string
+    private function renderRichText(string $name, string $value, string $errorClass, bool $advanced): string
     {
         $editorId = 'appycrud-rt-' . $name;
         $t = $this->translator;
 
-        $buttons = [
-            ['bold', 'B', $t->t('richtext.bold')],
-            ['italic', 'I', $t->t('richtext.italic')],
-            ['underline', 'U', $t->t('richtext.underline')],
-            ['insertUnorderedList', '&bull; –', $t->t('richtext.bullet_list')],
-            ['insertOrderedList', '1.', $t->t('richtext.numbered_list')],
-        ];
+        $execButton = function (string $command, string $icon, string $label) use ($editorId): string {
+            return '<button type="button" onmousedown="event.preventDefault()" onclick="appycrudRichTextExec(\'' . $editorId . '\', \'' . $command . '\')" title="' . $this->e($label) . '" class="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100">' . $icon . '</button>';
+        };
 
-        $toolbar = '';
-        foreach ($buttons as [$command, $icon, $label]) {
-            $toolbar .= '<button type="button" onmousedown="event.preventDefault()" onclick="appycrudRichTextExec(\'' . $editorId . '\', \'' . $command . '\')" title="' . $this->e($label) . '" class="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100">' . $icon . '</button>';
+        $toolbar = $execButton('bold', 'B', $t->t('richtext.bold'))
+            . $execButton('italic', 'I', $t->t('richtext.italic'))
+            . $execButton('underline', 'U', $t->t('richtext.underline'))
+            . $execButton('insertUnorderedList', '&bull; –', $t->t('richtext.bullet_list'))
+            . $execButton('insertOrderedList', '1.', $t->t('richtext.numbered_list'));
+
+        if ($advanced) {
+            $toolbar .= '<select onmousedown="event.preventDefault()" onchange="appycrudRichTextFormatBlock(\'' . $editorId . '\', this.value); this.value=\'\'" title="' . $this->e($t->t('richtext.heading')) . '" class="px-1 py-1 text-sm border border-gray-300 rounded bg-white">'
+                . '<option value="">' . $this->e($t->t('richtext.paragraph')) . '</option>'
+                . '<option value="h1">' . $this->e($t->t('richtext.heading')) . ' 1</option>'
+                . '<option value="h2">' . $this->e($t->t('richtext.heading')) . ' 2</option>'
+                . '<option value="h3">' . $this->e($t->t('richtext.heading')) . ' 3</option>'
+                . '</select>'
+                . '<button type="button" onmousedown="event.preventDefault()" onclick="appycrudRichTextLink(\'' . $editorId . '\')" title="' . $this->e($t->t('richtext.link')) . '" class="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100">' . $this->icon('link') . '</button>'
+                . $execButton('unlink', $this->icon('unlink'), $t->t('richtext.unlink'))
+                . $execButton('justifyLeft', $this->icon('align-left'), $t->t('richtext.align_left'))
+                . $execButton('justifyCenter', $this->icon('align-center'), $t->t('richtext.align_center'))
+                . $execButton('justifyRight', $this->icon('align-right'), $t->t('richtext.align_right'))
+                . $execButton('undo', $this->icon('undo'), $t->t('richtext.undo'))
+                . $execButton('redo', $this->icon('redo'), $t->t('richtext.redo'));
         }
 
-        return '<div class="flex items-center gap-1 mb-1">' . $toolbar . '</div>'
-            . '<div id="' . $editorId . '" contenteditable="true" oninput="appycrudRichTextSync(\'' . $editorId . '\')" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm min-h-[8rem]' . $errorClass . '">' . $value . '</div>'
+        return '<div class="flex items-center gap-1 mb-1 flex-wrap">' . $toolbar . '</div>'
+            . '<div id="' . $editorId . '" contenteditable="true" oninput="appycrudRichTextSync(\'' . $editorId . '\')" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm min-h-[8rem] max-h-96 overflow-y-auto appycrud-richtext' . $errorClass . '">' . $value . '</div>'
             . '<input type="hidden" name="' . $name . '" id="' . $editorId . '-input" value="' . $this->e($value) . '">';
     }
 
@@ -1245,7 +1459,15 @@ class TailwindRenderer
             $optionsHtml .= '<option value="' . $this->e($optionValue) . '"' . $isSelected . '>' . $this->e((string) $option['label']) . '</option>';
         }
 
-        return '<select name="' . $name . '[]" multiple class="' . $class . ' bg-white h-32">' . $optionsHtml . '</select>';
+        // Altura fija (no crece con la cantidad de opciones, por muchas que
+        // sean) — con muchas opciones, el <select> hace scroll interno en vez
+        // de estirar el modal completo fuera de la pantalla. El contador de
+        // seleccionados (appycrudUpdateMultiselectCount) ayuda a ver de un
+        // vistazo cuantas quedaron marcadas sin tener que scrollear la lista.
+        $selectId = 'ms_' . preg_replace('/[^a-zA-Z0-9_]/', '_', $name);
+
+        return '<select id="' . $selectId . '" name="' . $name . '[]" multiple onchange="appycrudUpdateMultiselectCount(this)" class="' . $class . ' bg-white h-40">' . $optionsHtml . '</select>'
+            . '<p class="mt-1 text-xs text-gray-500" data-multiselect-count="' . $selectId . '">' . count($selected) . ' ' . $this->e($this->translator->t('form.multiselect_selected_count')) . '</p>';
     }
 
     /**
@@ -1267,9 +1489,12 @@ class TailwindRenderer
                 . '</label>';
         }
 
+        $countLabel = count($selected) . ' ' . $this->e($this->translator->t('form.multiselect_selected_count'));
+
         return '<div data-appycrud-multiselect class="border border-gray-300 rounded-md p-2">'
             . '<input type="text" placeholder="' . $this->e($this->translator->t('list.search_placeholder')) . '" class="w-full mb-2 text-xs border-b border-gray-200 pb-1 focus:outline-none" oninput="appycrudFilterMultiselect(this)">'
-            . '<div class="max-h-32 overflow-y-auto">' . $checkboxes . '</div>'
+            . '<div class="max-h-48 overflow-y-auto" onchange="appycrudUpdateMultiselectCheckboxCount(this)">' . $checkboxes . '</div>'
+            . '<p class="mt-1 text-xs text-gray-500" data-checkbox-count>' . $countLabel . '</p>'
             . '</div>';
     }
 
@@ -1291,6 +1516,13 @@ class TailwindRenderer
             'x-circle' => '<circle cx="12" cy="12" r="9" /><path d="M9.5 9.5l5 5M14.5 9.5l-5 5" />',
             'sliders' => '<path d="M4 6h6M14 6h6M4 12h10M18 12h2M4 18h6M14 18h6" /><circle cx="12" cy="6" r="2" /><circle cx="16" cy="12" r="2" /><circle cx="12" cy="18" r="2" />',
             'x' => '<path d="M18 6 6 18M6 6l12 12" />',
+            'link' => '<path d="M9 15l6-6" /><path d="M11 6l1-1a4 4 0 1 1 6 6l-1 1" /><path d="M13 18l-1 1a4 4 0 1 1-6-6l1-1" />',
+            'unlink' => '<path d="M9 15l6-6" /><path d="M11 6l1-1a4 4 0 1 1 6 6l-1 1" /><path d="M13 18l-1 1a4 4 0 1 1-6-6l1-1" /><path d="M4 4l16 16" />',
+            'align-left' => '<path d="M4 6h16M4 12h10M4 18h14" />',
+            'align-center' => '<path d="M4 6h16M7 12h10M5 18h14" />',
+            'align-right' => '<path d="M4 6h16M10 12h10M6 18h14" />',
+            'undo' => '<path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" />',
+            'redo' => '<path d="M15 14l5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h1" />',
         ];
 
         $path = $paths[$name] ?? '';

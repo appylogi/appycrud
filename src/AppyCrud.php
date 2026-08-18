@@ -101,6 +101,9 @@ class AppyCrud
     private bool $deleteFilesOnDelete;
     /** @var string[]|null */
     private ?array $filterableFields;
+    private int $perPage;
+    /** @var int[] */
+    private array $perPageOptions;
 
     public function __construct(
         private Connection $connection,
@@ -159,6 +162,8 @@ class AppyCrud
         $this->uploadUrlPrefix = $options['uploadUrlPrefix'] ?? null;
         $this->deleteFilesOnDelete = $options['deleteFilesOnDelete'] ?? true;
         $this->filterableFields = $options['filterableFields'] ?? null;
+        $this->perPage = (int) ($options['perPage'] ?? 20);
+        $this->perPageOptions = $options['perPageOptions'] ?? [10, 20, 50, 100];
 
         $hasFileColumn = false;
         foreach ($this->schema->columns() as $column) {
@@ -342,7 +347,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters);
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions);
     }
 
     /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */
@@ -350,7 +355,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $advancedFilters, $this->filterableFields);
+        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $advancedFilters, $this->filterableFields, $this->perPageOptions);
     }
 
     /** @return array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> */
@@ -375,10 +380,23 @@ class AppyCrud
         $orderBy = (string) ($get['orderBy'] ?? $this->defaultOrderBy);
         $orderDir = (string) ($get['orderDir'] ?? $this->defaultOrderDir);
         $advancedFilters = $this->features['filters'] ? $this->extractAdvancedFilters($get) : [];
+        $perPage = $this->resolvePerPage($get);
 
-        $pagination = $this->repository->paginate($page, 20, $orderBy, $orderDir, $filters, $search, $advancedFilters);
+        $pagination = $this->repository->paginate($page, $perPage, $orderBy, $orderDir, $filters, $search, $advancedFilters);
 
         return [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters];
+    }
+
+    /**
+     * El valor de $get['perPage'] solo se acepta si esta en $perPageOptions
+     * (whitelist) — de lo contrario cualquiera podria pedir ?perPage=999999
+     * y forzar una consulta que trae la tabla completa de un golpe.
+     */
+    private function resolvePerPage(array $get): int
+    {
+        $requested = (int) ($get['perPage'] ?? 0);
+
+        return in_array($requested, $this->perPageOptions, true) ? $requested : $this->perPage;
     }
 
     /** @return string[] nombres de columna permitidos en el filtro simple y en el constructor avanzado */

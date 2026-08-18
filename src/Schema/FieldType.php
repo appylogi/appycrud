@@ -42,6 +42,7 @@ class FieldType
     public const TIMESTAMP = 'timestamp';
     public const FILE = 'file';
     public const RICHTEXT = 'richtext';
+    public const RICHTEXT_ADVANCED = 'richtext_advanced';
 
     /** Estrategias de render que implementa TailwindRenderer::renderField(). */
     public const STRATEGY_TEXT = 'text_input';
@@ -98,6 +99,7 @@ class FieldType
         'textarea' => self::STRATEGY_TEXTAREA,
         self::FILE => self::STRATEGY_FILE,
         self::RICHTEXT => self::STRATEGY_RICHTEXT,
+        self::RICHTEXT_ADVANCED => self::STRATEGY_RICHTEXT,
     ];
 
     public static function strategy(string $inputType): string
@@ -120,5 +122,11 @@ class FieldType
     public static function isRichText(string $inputType): bool
     {
         return self::strategy($inputType) === self::STRATEGY_RICHTEXT;
+    }
+
+    /** true si el editor debe mostrar la barra de herramientas extendida (encabezados, enlaces, alineacion, deshacer/rehacer). */
+    public static function isRichTextAdvanced(string $inputType): bool
+    {
+        return $inputType === self::RICHTEXT_ADVANCED;
     }
 }
