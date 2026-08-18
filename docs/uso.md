@@ -82,7 +82,7 @@ Si la validación falla, AppyCrud responde con HTTP 422 y re-renderiza el formul
 | `dropdown_search`, `enum_searchable` | combobox buscable | `<input list>` + `<datalist>` nativo del navegador; guarda el *value* real en un campo oculto sincronizado, no el texto visible. |
 | `relational_native` | `<select>` poblado desde otra tabla | Es lo que ya se genera automáticamente para una FK; este nombre es explícito por si prefieres declararlo así. |
 | `multiselect_native` | `<select multiple>` | Se guarda como texto separado por comas en una sola columna (no arma una tabla de unión). |
-| `multiselect_searchable` | checkboxes + filtro de texto | Mismo almacenamiento (CSV) que `multiselect_native`. |
+| `multiselect_searchable` | combobox "select2" (buscar + chips) | Mismo almacenamiento (CSV) que `multiselect_native`; ver [más abajo](#multiselect-con-muchas-opciones). |
 | `richtext` | editor de texto enriquecido (simple) | `<div contenteditable>` + barra minima (negrita/itálica/subrayado/listas), vanilla JS. Ver [Editor de texto enriquecido](#editor-de-texto-enriquecido-richtext). |
 | `richtext_advanced` | editor de texto enriquecido (avanzado) | Igual que `richtext`, con barra extendida: encabezados (H1-H3), enlaces, alineación, deshacer/rehacer. Sigue siendo vanilla JS (`document.execCommand`), sin dependencias nuevas. |
 
@@ -103,7 +103,11 @@ Cuando el campo no es una llave foránea, dale las opciones a mano:
 
 Si la columna es un `ENUM(...)` de MySQL, AppyCrud detecta los valores solo y los usa como opciones automáticamente — no hace falta declarar `options` a mano (aunque puedes sobreescribirlas si quieres otros labels).
 
-**Multiselect con muchas opciones:** tanto `multiselect_native` (`<select multiple>`) como `multiselect_searchable` (checkboxes) tienen una altura fija — no crecen sin límite aunque la lista de opciones sea larga; con muchas opciones, hacen scroll interno. Debajo de cada uno aparece un contador ("N seleccionado(s)") que se actualiza en vivo, para no tener que scrollear la lista completa solo para saber cuántos quedaron marcados.
+### Multiselect con muchas opciones
+
+`multiselect_native` (`<select multiple>`) tiene una altura fija — no crece sin límite aunque la lista de opciones sea larga; con muchas opciones, hace scroll interno. Debajo aparece un contador ("N seleccionado(s)") que se actualiza en vivo, para no tener que scrollear la lista completa solo para saber cuántos quedaron marcados.
+
+`multiselect_searchable` es un combobox al estilo **select2**: los valores ya elegidos se muestran como **chips removibles** dentro de la misma caja; escribir abre un desplegable con las opciones que faltan por elegir (las ya seleccionadas no se repiten en la lista, así que no hay que buscar entre lo que ya marcaste). Hacer clic en una opción la agrega como chip; la "×" de cada chip la quita y la devuelve al desplegable. Todo vanilla JS — sin ninguna librería de terceros (no es una integración de la librería select2 real, es un widget propio con el mismo patrón de interacción).
 
 ### Cargar archivos (`file`)
 

@@ -122,8 +122,10 @@ $config = new TableConfig([
         ['value' => 'media', 'label' => 'Media'],
         ['value' => 'alta', 'label' => 'Alta'],
     ]],
-    // 'multiselect_native' se guarda como CSV en una sola columna (ver docs/uso.md).
-    'etiquetas' => ['label' => 'Etiquetas', 'inputType' => 'multiselect_native', 'options' => [
+    // 'multiselect_searchable' se guarda como CSV en una sola columna (ver docs/uso.md),
+    // igual que 'multiselect_native' — la diferencia es solo el widget: aqui es un
+    // combobox tipo "select2" (buscar + chips removibles), en vez del <select multiple> nativo.
+    'etiquetas' => ['label' => 'Etiquetas', 'inputType' => 'multiselect_searchable', 'options' => [
         ['value' => 'casa', 'label' => 'Casa'],
         ['value' => 'oficina', 'label' => 'Oficina'],
         ['value' => 'viaje', 'label' => 'Viaje'],

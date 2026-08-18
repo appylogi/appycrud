@@ -431,7 +431,7 @@ class TailwindRenderer
             : '';
         $deleteForm = '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '"' . $deleteSubmit . '>' . $csrfField . '%s</form>';
 
-        $editButton = '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="%s text-blue-600 hover:text-blue-800%s">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
+        $editButton = '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="%s px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-300%s">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
 
         // Con pocas acciones se muestran todas en linea; con varias, las
         // secundarias se agrupan en un menu para no saturar la fila.
@@ -788,23 +788,75 @@ class TailwindRenderer
             hidden.value = match !== null ? match : '';
         }
 
-        function appycrudFilterMultiselect(input) {
-            var term = input.value.toLowerCase();
-            input.closest('[data-appycrud-multiselect]').querySelectorAll('.appycrud-ms-option').forEach(function (opt) {
-                opt.style.display = opt.textContent.toLowerCase().includes(term) ? '' : 'none';
-            });
-        }
-
         function appycrudUpdateMultiselectCount(select) {
             var caption = document.querySelector('[data-multiselect-count="' + select.id + '"]');
             if (caption) { caption.textContent = select.selectedOptions.length + caption.textContent.replace(/^\d+/, ''); }
         }
 
-        function appycrudUpdateMultiselectCheckboxCount(container) {
-            var wrap = container.closest('[data-appycrud-multiselect]');
-            var caption = wrap.querySelector('[data-checkbox-count]');
-            var checked = wrap.querySelectorAll('input[type="checkbox"]:checked').length;
-            if (caption) { caption.textContent = checked + caption.textContent.replace(/^\d+/, ''); }
+        // --- Combobox de seleccion multiple "select2" (multiselect_searchable) ---
+
+        function appycrudSelect2FocusInput(box) {
+            box.querySelector('.appycrud-select2-input').focus();
+        }
+
+        function appycrudSelect2Open(input) {
+            var dropdown = input.closest('.appycrud-select2').querySelector('.appycrud-select2-dropdown');
+            document.querySelectorAll('.appycrud-select2-dropdown').forEach(function (d) {
+                if (d !== dropdown) { d.classList.add('hidden'); }
+            });
+            dropdown.classList.remove('hidden');
+        }
+
+        var appycrudSelect2CloseIconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3"><path d="M18 6 6 18M6 6l12 12" /></svg>';
+
+        function appycrudSelect2Filter(input) {
+            appycrudSelect2Open(input);
+            var term = input.value.toLowerCase();
+            var dropdown = input.closest('.appycrud-select2').querySelector('.appycrud-select2-dropdown');
+            dropdown.querySelectorAll('.appycrud-select2-option').forEach(function (opt) {
+                var alreadySelected = opt.dataset.selected === '1';
+                var matches = !alreadySelected && opt.dataset.label.toLowerCase().indexOf(term) !== -1;
+                opt.classList.toggle('hidden', !matches);
+            });
+        }
+
+        function appycrudSelect2Select(optionButton) {
+            var wrap = optionButton.closest('.appycrud-select2');
+            var name = wrap.dataset.name;
+            var value = optionButton.dataset.value;
+            var label = optionButton.dataset.label;
+
+            var chip = document.createElement('span');
+            chip.className = 'appycrud-select2-chip inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs rounded px-2 py-1';
+            chip.dataset.value = value;
+            chip.innerHTML = '<span></span><input type="hidden"><button type="button" class="text-blue-600 hover:text-blue-900" onclick="appycrudSelect2Remove(this)">' + appycrudSelect2CloseIconSvg + '</button>';
+            chip.querySelector('span').textContent = label;
+            var hidden = chip.querySelector('input');
+            hidden.name = name + '[]';
+            hidden.value = value;
+
+            wrap.querySelector('.appycrud-select2-chips').appendChild(chip);
+            optionButton.classList.add('hidden');
+            optionButton.dataset.selected = '1';
+
+            var input = wrap.querySelector('.appycrud-select2-input');
+            input.value = '';
+            input.focus();
+        }
+
+        function appycrudSelect2Remove(removeButton) {
+            var chip = removeButton.closest('.appycrud-select2-chip');
+            var wrap = chip.closest('.appycrud-select2');
+            var value = chip.dataset.value;
+
+            wrap.querySelectorAll('.appycrud-select2-option').forEach(function (opt) {
+                if (opt.dataset.value === value) {
+                    opt.classList.remove('hidden');
+                    opt.dataset.selected = '0';
+                }
+            });
+
+            chip.remove();
         }
         function appycrudSubmitForm(event, form) {
             event.preventDefault();
@@ -990,6 +1042,9 @@ class TailwindRenderer
         document.addEventListener('click', function (e) {
             if (!e.target.closest('.appycrud-menu-wrap')) {
                 document.querySelectorAll('.appycrud-menu').forEach(function (m) { m.classList.add('hidden'); });
+            }
+            if (!e.target.closest('.appycrud-select2')) {
+                document.querySelectorAll('.appycrud-select2-dropdown').forEach(function (d) { d.classList.add('hidden'); });
             }
         });
 
@@ -1497,27 +1552,58 @@ class TailwindRenderer
      * multiselect nativo tiene demasiadas opciones para desplazarse comodo.
      * @param array<int, array{value: mixed, label: string}> $options
      */
+    /**
+     * Combobox de seleccion multiple al estilo "select2": los valores ya
+     * elegidos se muestran como chips removibles dentro de la misma caja de
+     * busqueda; escribir filtra un dropdown con las opciones que faltan por
+     * elegir (las ya seleccionadas no se repiten en la lista). Cada chip
+     * lleva su propio <input type="hidden"> — es lo que realmente viaja en
+     * el submit, el combobox visible no tiene "name" propio. Vanilla JS
+     * (funciones appycrudSelect2*), sin ninguna libreria de terceros.
+     * @param array<int, array{value: mixed, label: string}> $options
+     */
     private function renderMultiselectSearchable(string $name, string $value, array $options): string
     {
         $selected = $value !== '' ? explode(',', $value) : [];
-
-        $checkboxes = '';
+        $labelsByValue = [];
         foreach ($options as $option) {
-            $optionValue = (string) $option['value'];
-            $isChecked = in_array($optionValue, $selected, true) ? ' checked' : '';
-            $checkboxes .= '<label class="appycrud-ms-option flex items-center gap-2 text-sm py-0.5">'
-                . '<input type="checkbox" name="' . $name . '[]" value="' . $this->e($optionValue) . '"' . $isChecked . '>'
-                . '<span>' . $this->e((string) $option['label']) . '</span>'
-                . '</label>';
+            $labelsByValue[(string) $option['value']] = (string) $option['label'];
         }
 
-        $countLabel = count($selected) . ' ' . $this->e($this->translator->t('form.multiselect_selected_count'));
+        $chips = '';
+        foreach ($selected as $selectedValue) {
+            if (isset($labelsByValue[$selectedValue])) {
+                $chips .= $this->renderSelect2Chip($name, $selectedValue, $labelsByValue[$selectedValue]);
+            }
+        }
 
-        return '<div data-appycrud-multiselect class="border border-gray-300 rounded-md p-2">'
-            . '<input type="text" placeholder="' . $this->e($this->translator->t('list.search_placeholder')) . '" class="w-full mb-2 text-xs border-b border-gray-200 pb-1 focus:outline-none" oninput="appycrudFilterMultiselect(this)">'
-            . '<div class="max-h-48 overflow-y-auto" onchange="appycrudUpdateMultiselectCheckboxCount(this)">' . $checkboxes . '</div>'
-            . '<p class="mt-1 text-xs text-gray-500" data-checkbox-count>' . $countLabel . '</p>'
-            . '</div>';
+        $dropdownOptions = '';
+        foreach ($options as $option) {
+            $optionValue = (string) $option['value'];
+            $isSelected = in_array($optionValue, $selected, true);
+            $dropdownOptions .= '<button type="button" data-value="' . $this->e($optionValue) . '" data-label="' . $this->e((string) $option['label']) . '" data-selected="' . ($isSelected ? '1' : '0') . '" onclick="appycrudSelect2Select(this)" class="appycrud-select2-option w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50' . ($isSelected ? ' hidden' : '') . '">' . $this->e((string) $option['label']) . '</button>';
+        }
+
+        $placeholder = $this->e($this->translator->t('list.search_placeholder'));
+
+        return <<<HTML
+        <div class="appycrud-select2 relative" data-name="{$this->e($name)}">
+            <div class="flex flex-wrap items-center gap-1 border border-gray-300 rounded-md p-1.5 min-h-[2.5rem] focus-within:ring-2 focus-within:ring-blue-200" onclick="appycrudSelect2FocusInput(this)">
+                <div class="appycrud-select2-chips flex flex-wrap gap-1">{$chips}</div>
+                <input type="text" class="appycrud-select2-input flex-1 min-w-[6rem] text-sm outline-none border-0 p-0.5" placeholder="{$placeholder}" oninput="appycrudSelect2Filter(this)" onfocus="appycrudSelect2Open(this)">
+            </div>
+            <div class="appycrud-select2-dropdown hidden absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">{$dropdownOptions}</div>
+        </div>
+        HTML;
+    }
+
+    private function renderSelect2Chip(string $name, string $value, string $label): string
+    {
+        return '<span class="appycrud-select2-chip inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs rounded px-2 py-1" data-value="' . $this->e($value) . '">'
+            . '<span>' . $this->e($label) . '</span>'
+            . '<input type="hidden" name="' . $name . '[]" value="' . $this->e($value) . '">'
+            . '<button type="button" onclick="appycrudSelect2Remove(this)" class="text-blue-600 hover:text-blue-900">' . $this->icon('x') . '</button>'
+            . '</span>';
     }
 
     /**
