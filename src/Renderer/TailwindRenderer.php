@@ -427,7 +427,7 @@ class TailwindRenderer
 
         $advancedPanel = $filtersEnabled ? $this->renderAdvancedFilterPanel($filterableColumns, $advancedFilters) : '';
         $advancedToggle = $filtersEnabled
-            ? '<button type="button" onclick="appycrudToggleAdvancedFilter()" class="text-sm text-gray-600 hover:underline">' . $this->e($t->t('list.advanced_filter')) . '</button>'
+            ? '<button type="button" onclick="appycrudOpenAdvancedFilter()" class="inline-flex items-center gap-1.5 text-sm text-gray-600 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50">' . $this->icon('sliders') . '<span>' . $this->e($t->t('list.advanced_filter')) . '</span></button>'
             : '';
 
         return <<<HTML
@@ -435,8 +435,8 @@ class TailwindRenderer
             <div class="flex flex-wrap items-center gap-2">
                 {$fields}
                 {$orderHidden}
-                <button type="submit" class="bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->e($t->t('list.filter_apply'))}</button>
-                <a href="{$this->e($baseUrl)}" class="text-sm text-gray-500 hover:underline">{$this->e($t->t('list.filter_clear'))}</a>
+                <button type="submit" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$this->e($t->t('list.filter_apply'))}</span></button>
+                <a href="{$this->e($baseUrl)}" class="inline-flex items-center gap-1.5 bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-md text-sm hover:bg-red-100">{$this->icon('x-circle')}<span>{$this->e($t->t('list.filter_clear'))}</span></a>
                 {$advancedToggle}
             </div>
             {$advancedPanel}
@@ -476,16 +476,23 @@ class TailwindRenderer
 
         $addLabel = $this->e($t->t('list.advanced_filter_add_row'));
         $applyLabel = $this->e($t->t('list.filter_apply'));
+        $titleLabel = $this->e($t->t('list.advanced_filter'));
 
         return <<<HTML
-        <div id="appycrud-advanced-filter" class="hidden mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md">
-            <template id="appycrud-af-row-template">{$templateRow}</template>
-            <div id="appycrud-advanced-filter-rows">{$rowsHtml}</div>
-            <div class="flex items-center gap-2 mt-2">
-                <button type="button" onclick="appycrudAddFilterRow()" class="text-sm text-blue-600 hover:underline">+ {$addLabel}</button>
-                <button type="button" onclick="appycrudSubmitFilters(null, document.getElementById('appycrud-advanced-filter').closest('form'))" class="bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$applyLabel}</button>
+        <dialog id="appycrud-advanced-filter" class="rounded-lg shadow-xl p-0 w-full max-w-2xl backdrop:bg-black/50">
+            <div class="p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-base font-semibold text-gray-900">{$titleLabel}</h2>
+                    <button type="button" onclick="appycrudCloseAdvancedFilter()" class="text-gray-400 hover:text-gray-700">{$this->icon('x')}</button>
+                </div>
+                <template id="appycrud-af-row-template">{$templateRow}</template>
+                <div id="appycrud-advanced-filter-rows">{$rowsHtml}</div>
+                <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-100">
+                    <button type="button" onclick="appycrudAddFilterRow()" class="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">{$this->icon('plus')}<span>{$addLabel}</span></button>
+                    <button type="button" onclick="appycrudApplyAdvancedFilter()" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$applyLabel}</span></button>
+                </div>
             </div>
-        </div>
+        </dialog>
         HTML;
     }
 
@@ -632,7 +639,7 @@ class TailwindRenderer
 
         function appycrudScheduleFilter(form) {
             clearTimeout(appycrudFilterTimer);
-            appycrudFilterTimer = setTimeout(function () { appycrudApplyFilters(form); }, 350);
+            appycrudFilterTimer = setTimeout(function () { appycrudApplyFilters(form); }, 500);
         }
 
         function appycrudSubmitFilters(event, form) {
@@ -656,8 +663,18 @@ class TailwindRenderer
                 });
         }
 
-        function appycrudToggleAdvancedFilter() {
-            document.getElementById('appycrud-advanced-filter').classList.toggle('hidden');
+        function appycrudOpenAdvancedFilter() {
+            document.getElementById('appycrud-advanced-filter').showModal();
+        }
+
+        function appycrudCloseAdvancedFilter() {
+            document.getElementById('appycrud-advanced-filter').close();
+        }
+
+        function appycrudApplyAdvancedFilter() {
+            var dialog = document.getElementById('appycrud-advanced-filter');
+            appycrudSubmitFilters(null, dialog.closest('form'));
+            dialog.close();
         }
 
         function appycrudAddFilterRow() {
@@ -1222,6 +1239,10 @@ class TailwindRenderer
             'download' => '<path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" />',
             'printer' => '<path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1" /><path d="M6 17v4h12v-4" />',
             'dots' => '<circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />',
+            'search' => '<circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />',
+            'x-circle' => '<circle cx="12" cy="12" r="9" /><path d="M9.5 9.5l5 5M14.5 9.5l-5 5" />',
+            'sliders' => '<path d="M4 6h6M14 6h6M4 12h10M18 12h2M4 18h6M14 18h6" /><circle cx="12" cy="6" r="2" /><circle cx="16" cy="12" r="2" /><circle cx="12" cy="18" r="2" />',
+            'x' => '<path d="M18 6 6 18M6 6l12 12" />',
         ];
 
         $path = $paths[$name] ?? '';

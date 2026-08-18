@@ -96,6 +96,8 @@ Los operadores `is_null`/`is_not_null` no llevan valor ni parametro bindeado; el
 
 `TailwindRenderer` no sabe nada de esta logica: solo genera los inputs `af_field[]`/`af_op[]`/`af_value[]`/`af_conn[]` dentro del mismo `<form>` del filtro simple, en el mismo orden en que estan en el DOM (`appycrudAddFilterRow()`/`appycrudRemoveFilterRow()` solo clonan/quitan bloques completos de 4 inputs desde un `<template>`, nunca reordenan). El envio via `FormData(form)` preserva ese orden, que es lo que permite alinear los 4 arrays por posicion sin depender de indices explicitos en los nombres.
 
+**El panel es un `<dialog id="appycrud-advanced-filter">` (modal nativo), no un `<div>` oculto por CSS** — pero sigue viviendo dentro del mismo `<form>` del filtro simple. Esto funciona porque `<dialog>` no reparenta sus hijos al mostrarse via `showModal()` (solo lo pinta en el "top layer"); los `<input>`/`<select>` dentro siguen siendo descendientes del `<form>` en el arbol del DOM, asi que `FormData(form)` los sigue incluyendo con el dialog abierto **o cerrado**. `appycrudApplyAdvancedFilter()` llama a `appycrudSubmitFilters()` (la misma funcion que usa el filtro simple) y despues cierra el dialog — no hay una ruta de envio separada para el filtro avanzado.
+
 ### `insertDefaults`
 
 Se aplican en `CrudRepository::insert()` con `array_merge($data, $this->insertDefaults)` — es decir, **despues** de filtrar por columnas conocidas, y sobreescribiendo cualquier valor que haya mandado el cliente para esas columnas. Es el complemento de seguridad de `where`: sin esto, un `where` que restringe por `empresa_id` no impide que alguien inserte un registro con un `empresa_id` distinto al suyo.

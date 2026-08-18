@@ -367,11 +367,15 @@ Sin esta opción (`null`, el default), se muestran todas las columnas visibles, 
 
 ### Constructor de filtro avanzado (AND/OR)
 
-Junto al filtro simple hay un botón **"Filtro avanzado"** que abre un panel con filas dinámicas: cada fila es `campo` + `operador` + `valor`, y (salvo la primera) un selector **Y/O** que la conecta con la fila anterior. Las filas se combinan **de izquierda a derecha** — por ejemplo, con 3 filas A, B, C conectadas por Y y O respectivamente, el resultado es `(A Y B) O C`, no la precedencia habitual de SQL (donde `Y` siempre liga más fuerte que `O`). Esto es intencional: en un constructor visual el usuario espera que el orden en que agrega las condiciones sea el orden en que se combinan.
+Junto al filtro simple hay un botón **"Filtro avanzado"** que abre un **modal** (`<dialog>` nativo) con filas dinámicas: cada fila es `campo` + `operador` + `valor`, y (salvo la primera) un selector **Y/O** que la conecta con la fila anterior. Las filas se combinan **de izquierda a derecha** — por ejemplo, con 3 filas A, B, C conectadas por Y y O respectivamente, el resultado es `(A Y B) O C`, no la precedencia habitual de SQL (donde `Y` siempre liga más fuerte que `O`). Esto es intencional: en un constructor visual el usuario espera que el orden en que agrega las condiciones sea el orden en que se combinan.
 
 Operadores disponibles: es igual a, es distinto de, contiene, no contiene, mayor que, mayor o igual que, menor que, menor o igual que, es vacío, no es vacío.
 
-No requiere ninguna opción adicional — se activa junto con `filters` (`true` por default). Las filas se pueden agregar/quitar dinámicamente (JS vanilla, sin librerías); al aplicar, se combinan con el filtro simple y la búsqueda global en el mismo request (AJAX, sin recargar la página). El estado del filtro avanzado también viaja en los links de ordenar por columna y exportar, para no perderlo al navegar.
+No requiere ninguna opción adicional — se activa junto con `filters` (`true` por default). Las filas se pueden agregar/quitar dinámicamente (JS vanilla, sin librerías); al hacer clic en "Filtrar" dentro del modal, se aplican los filtros (combinados con el filtro simple y la búsqueda global, todo en un mismo request AJAX sin recargar la página) y el modal se cierra automáticamente. El estado del filtro avanzado también viaja en los links de ordenar por columna y exportar, para no perderlo al navegar.
+
+### Filtrado en vivo (debounce)
+
+Tanto la búsqueda global como el filtro simple por columna consultan automáticamente mientras escribes: esperan **medio segundo (500ms) sin nueva tecla** antes de disparar la consulta (AJAX, sin recargar la página) — así no se dispara una consulta por cada tecla, pero tampoco hace falta hacer clic en "Filtrar" para ver el resultado. El botón "Filtrar" queda disponible para forzar la consulta al instante (por ejemplo, tras pegar un valor) y "Limpiar" quita todos los filtros activos de un clic.
 
 ## Restringir por WHERE (scoping)
 
