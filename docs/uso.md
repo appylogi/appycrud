@@ -424,6 +424,16 @@ El listado incluye un selector **"Por página"** (con las opciones resueltas de 
 
 `perPage` en la querystring (`?perPage=50`) **solo se acepta si el valor está en las `perPageOptions` resueltas** — cualquier otro valor se ignora y se usa el `perPage` default. Esto es deliberado: sin esta validación, cualquiera podría pedir `?perPage=999999` y forzar una consulta que trae la tabla completa de un solo golpe.
 
+**Para verlo funcionando:** `examples/index.php` (la tabla `tareas`) ya lo configura así, en el `TableConfig` que arma el ejemplo:
+
+```php
+$config = new TableConfig([
+    // ...overrides de columnas...
+], perPage: 10, perPageOptions: [10, 24, 50]);
+```
+
+Como el ejemplo siembra 24 registros por defecto, con `perPage: 10` el listado abre mostrando **3 páginas** — así el selector "Por página" y los botones Anterior/Siguiente son visibles de inmediato sin tener que crear registros a mano. Corre el ejemplo (`php -S localhost:8000 -t examples`) y abre `http://localhost:8000/` para verlo: el selector muestra `10 / 24 / 50` (no el default global `10/20/50/100`) precisamente porque viene del `TableConfig` de esa tabla, no de las opciones de `AppyCrud`.
+
 ## Restringir por WHERE (scoping)
 
 Cuando necesitas que un mismo CRUD solo muestre (y solo permita editar/eliminar) los registros que le corresponden a algo — multi-tenant por empresa, "solo mis propios registros", excluir un estado — usa la opción `where`. A diferencia de los filtros del usuario (`filters`/`search`, opcionales y visibles en el listado), estas condiciones son **fijas** y las define el integrador, no el usuario final:
