@@ -469,8 +469,12 @@ class TailwindRenderer
         // va en un <template> para que appycrudAddFilterRow() la clone sin depender de un fetch.
         $templateRow = $this->renderAdvancedFilterRow($filterableColumns, ['field' => '', 'op' => 'contains', 'value' => '', 'conn' => 'AND'], false);
 
+        // Si no hay filas activas (primera vez que se abre), se arranca con una
+        // fila vacia visible en vez de un panel en blanco sin nada que editar.
+        $initialRows = $activeRows === [] ? [['field' => '', 'op' => 'contains', 'value' => '', 'conn' => 'AND']] : $activeRows;
+
         $rowsHtml = '';
-        foreach ($activeRows as $index => $row) {
+        foreach ($initialRows as $index => $row) {
             $rowsHtml .= $this->renderAdvancedFilterRow($filterableColumns, $row, $index > 0);
         }
 
@@ -479,17 +483,17 @@ class TailwindRenderer
         $titleLabel = $this->e($t->t('list.advanced_filter'));
 
         return <<<HTML
-        <dialog id="appycrud-advanced-filter" class="rounded-lg shadow-xl p-0 w-full max-w-2xl backdrop:bg-black/50">
-            <div class="p-4">
-                <div class="flex items-center justify-between mb-3">
+        <dialog id="appycrud-advanced-filter" class="rounded-lg shadow-xl p-0 w-full max-w-3xl backdrop:bg-black/50">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
                     <h2 class="text-base font-semibold text-gray-900">{$titleLabel}</h2>
                     <button type="button" onclick="appycrudCloseAdvancedFilter()" class="text-gray-400 hover:text-gray-700">{$this->icon('x')}</button>
                 </div>
                 <template id="appycrud-af-row-template">{$templateRow}</template>
-                <div id="appycrud-advanced-filter-rows">{$rowsHtml}</div>
-                <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-100">
+                <div id="appycrud-advanced-filter-rows" class="space-y-3">{$rowsHtml}</div>
+                <div class="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-gray-100">
                     <button type="button" onclick="appycrudAddFilterRow()" class="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">{$this->icon('plus')}<span>{$addLabel}</span></button>
-                    <button type="button" onclick="appycrudApplyAdvancedFilter()" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$applyLabel}</span></button>
+                    <button type="button" onclick="appycrudApplyAdvancedFilter()" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-4 py-2 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$applyLabel}</span></button>
                 </div>
             </div>
         </dialog>
@@ -504,19 +508,19 @@ class TailwindRenderer
     {
         $t = $this->translator;
 
-        $connSelect = '<select name="af_conn[]" class="border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white' . ($showConnector ? '' : ' invisible') . '">'
+        $connSelect = '<select name="af_conn[]" class="border border-gray-300 rounded-md px-2 py-2 text-sm bg-white w-20 shrink-0' . ($showConnector ? '' : ' invisible') . '">'
             . '<option value="AND"' . ($row['conn'] === 'AND' ? ' selected' : '') . '>' . $this->e($t->t('list.conn_and')) . '</option>'
             . '<option value="OR"' . ($row['conn'] === 'OR' ? ' selected' : '') . '>' . $this->e($t->t('list.conn_or')) . '</option>'
             . '</select>';
 
-        $fieldSelect = '<select name="af_field[]" class="border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white"><option value="">--</option>';
+        $fieldSelect = '<select name="af_field[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[9rem]"><option value="">--</option>';
         foreach ($filterableColumns as $column) {
             $selected = $column->name === $row['field'] ? ' selected' : '';
             $fieldSelect .= '<option value="' . $this->e($column->name) . '"' . $selected . '>' . $this->e($column->label) . '</option>';
         }
         $fieldSelect .= '</select>';
 
-        $opSelect = '<select name="af_op[]" class="border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white" onchange="appycrudToggleFilterValue(this)">';
+        $opSelect = '<select name="af_op[]" class="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white flex-1 min-w-[10rem]" onchange="appycrudToggleFilterValue(this)">';
         foreach (self::ADVANCED_FILTER_OPERATOR_LABELS as $value => $labelKey) {
             $selected = $value === $row['op'] ? ' selected' : '';
             $opSelect .= '<option value="' . $value . '"' . $selected . '>' . $this->e($t->t($labelKey)) . '</option>';
@@ -525,10 +529,10 @@ class TailwindRenderer
 
         $valueHidden = in_array($row['op'], ['is_null', 'is_not_null'], true) ? ' style="display:none"' : '';
 
-        return '<div class="flex items-center gap-2 mb-2 appycrud-af-row">'
+        return '<div class="flex flex-wrap items-center gap-2 appycrud-af-row">'
             . $connSelect . $fieldSelect . $opSelect
-            . '<input type="text" name="af_value[]" value="' . $this->e((string) $row['value']) . '" class="border border-gray-300 rounded-md px-2 py-1.5 text-sm"' . $valueHidden . '>'
-            . '<button type="button" onclick="appycrudRemoveFilterRow(this)" class="text-gray-400 hover:text-red-600">&times;</button>'
+            . '<input type="text" name="af_value[]" value="' . $this->e((string) $row['value']) . '" class="border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 min-w-[9rem]"' . $valueHidden . '>'
+            . '<button type="button" onclick="appycrudRemoveFilterRow(this)" class="shrink-0 text-gray-400 hover:text-red-600 p-1" title="' . $this->e($t->t('list.advanced_filter_remove_row')) . '">' . $this->icon('x') . '</button>'
             . '</div>';
     }
 

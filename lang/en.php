@@ -36,6 +36,7 @@ return [
     'form.remove_file' => 'Remove current file',
     'list.advanced_filter' => 'Advanced filter',
     'list.advanced_filter_add_row' => 'Add condition',
+    'list.advanced_filter_remove_row' => 'Remove condition',
     'list.conn_and' => 'AND',
     'list.conn_or' => 'OR',
     'list.op_eq' => 'equals',
