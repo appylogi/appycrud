@@ -2,7 +2,9 @@
 
 Generador de CRUD genérico para PHP, sin framework, sin dependencias externas, con estilos Tailwind precompilados (funciona sin internet). Dale una conexión PDO y el nombre de una tabla, y obtienes listado, crear/editar/ver en modal, borrado (con confirmación, directo o lógico), filtros, búsqueda, orden, exportación, clonado e impresión — todo generado automáticamente a partir de la estructura real de tu tabla.
 
-Pensado como alternativa libre y descargable a herramientas como [GroceryCRUD](https://www.grocerycrud.com/): úsalo gratis en tu proyecto, sin licencias ni límites. Si quieres acompañamiento o personalización, [Appylogi](https://appylogi.com) ofrece soporte pago opcional.
+Código abierto bajo licencia MIT: úsalo gratis en cualquier proyecto, incluido uso comercial, sin licencias ni límites. Si quieres acompañamiento o personalización, [Appylogi](https://appylogi.com) ofrece soporte pago opcional.
+
+🌐 **Sitio y ejemplos en vivo:** [appycrud.appylogi.com](https://appycrud.appylogi.com) — la sección [/demo](https://appycrud.appylogi.com/demo) tiene varios ejemplos ejecutándose de verdad (cada uno en su propia caja de arena, puedes crear/editar/borrar libremente), uno por grupo de características: listado y filtros, relaciones, catálogo de tipos de campo, y modos de borrado.
 
 ## Características
 
