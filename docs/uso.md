@@ -42,6 +42,8 @@ $crud = new AppyCrud($connection, 'clientes', $config);
 
 Cualquier propiedad pública de `Column` se puede sobreescribir así (`label`, `hidden`, `readOnly`, `inputType`, `rules`, `reference`, etc.) — el mecanismo es genérico, no una lista cerrada.
 
+Además de los overrides por columna, `TableConfig` acepta ajustes de paginación propios de esa tabla (`perPage`, `perPageOptions`, segundo y tercer argumento) — ver [Paginación](#paginación-cuántos-registros-mostrar).
+
 ### Reglas de validación disponibles
 
 | Regla | Efecto |
@@ -391,6 +393,20 @@ Mientras esa consulta AJAX está en curso, aparece un indicador de carga (spinne
 
 ## Paginación: cuántos registros mostrar
 
+Se puede definir en dos lugares, con esta precedencia (el primero que se defina gana):
+
+**1. Por tabla, en `TableConfig`** — útil cuando distintas tablas de la misma app necesitan un default distinto (un catálogo chico puede querer 50 de entrada; un log grande, 10):
+
+```php
+$config = new TableConfig(
+    columnOverrides: ['id' => ['hidden' => true]],
+    perPage: 10,
+    perPageOptions: [10, 24, 50],
+);
+```
+
+**2. Global, en las opciones de `AppyCrud`** — se usa si la tabla no definió lo anterior:
+
 ```php
 $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
     'perPage' => 20,                      // default al abrir el listado
@@ -398,9 +414,11 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 ]);
 ```
 
-El listado incluye un selector **"Por página"** (con las opciones de `perPageOptions`) y navegación **Anterior/Siguiente**, junto al texto "Página X de Y". Cambiar el valor del selector recarga la página conservando los filtros/búsqueda/orden activos y vuelve a la página 1.
+**Si ninguno de los dos se configura**, el default final es `perPage = 20` con `perPageOptions = [10, 20, 50, 100]`.
 
-`perPage` en la querystring (`?perPage=50`) **solo se acepta si el valor está en `perPageOptions`** — cualquier otro valor se ignora y se usa el default. Esto es deliberado: sin esta validación, cualquiera podría pedir `?perPage=999999` y forzar una consulta que trae la tabla completa de un solo golpe.
+El listado incluye un selector **"Por página"** (con las opciones resueltas de `perPageOptions`) y navegación **Anterior/Siguiente**, junto al texto "Página X de Y". Cambiar el valor del selector recarga la página conservando los filtros/búsqueda/orden activos y vuelve a la página 1.
+
+`perPage` en la querystring (`?perPage=50`) **solo se acepta si el valor está en las `perPageOptions` resueltas** — cualquier otro valor se ignora y se usa el `perPage` default. Esto es deliberado: sin esta validación, cualquiera podría pedir `?perPage=999999` y forzar una consulta que trae la tabla completa de un solo golpe.
 
 ## Restringir por WHERE (scoping)
 

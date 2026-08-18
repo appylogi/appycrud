@@ -134,7 +134,12 @@ $config = new TableConfig([
     // (negrita/italica/subrayado/listas). Ambos se sanitizan igual al guardar
     // (Crud\HtmlSanitizer: whitelist de etiquetas, sin scripts/atributos peligrosos).
     'notas' => ['label' => 'Notas', 'inputType' => 'richtext_advanced'],
-]);
+], perPage: 10, perPageOptions: [10, 24, 50]);
+// ^ perPage/perPageOptions son propios de ESTA tabla ('tareas'): otra tabla de la
+// misma app puede pasar valores distintos en su propio TableConfig. Si no se
+// configuran aqui, se usa la opcion 'perPage'/'perPageOptions' del array de
+// opciones de AppyCrud (mas abajo); si tampoco esa se define, el default final
+// es 20 / [10, 20, 50, 100]. Ver docs/uso.md#paginación-cuántos-registros-mostrar.
 
 $locale = $_GET['lang'] ?? 'es';
 
