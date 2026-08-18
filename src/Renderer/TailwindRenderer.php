@@ -68,7 +68,7 @@ class TailwindRenderer
 
         $toolbar .= '<button type="button" onclick="window.print()" class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50">' . $this->icon('printer') . '<span>' . $this->e($t->t('list.print_list')) . '</span></button>';
 
-        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters);
+        $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields);
 
         return <<<HTML
         <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
@@ -104,8 +104,9 @@ class TailwindRenderer
         array $rowActions = [],
         ?string $uploadUrlPrefix = null,
         array $advancedFilters = [],
+        ?array $filterableFields = null,
     ): string {
-        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters);
+        return $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields);
     }
 
     private function renderListInner(
@@ -123,6 +124,7 @@ class TailwindRenderer
         array $rowActions = [],
         ?string $uploadUrlPrefix = null,
         array $advancedFilters = [],
+        ?array $filterableFields = null,
     ): string {
         $t = $this->translator;
         $columns = $schema->visibleColumns();
@@ -148,6 +150,10 @@ class TailwindRenderer
             $headers .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $this->renderSortLink($column, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $advancedFilters) . '</th>';
         }
         $headers .= '<th class="px-4 py-2 text-right text-xs font-semibold uppercase text-gray-600 print:hidden">' . $this->e($t->t('list.actions')) . '</th>';
+
+        $filterHeaderRow = ($features['filters'] ?? true)
+            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields)
+            : '';
 
         $bodyRows = '';
         foreach ($pagination['rows'] as $row) {
@@ -187,12 +193,58 @@ class TailwindRenderer
         return <<<HTML
         <div class="overflow-x-auto bg-white rounded-lg shadow">
             <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50"><tr>{$headers}</tr></thead>
+                <thead class="bg-gray-50"><tr>{$headers}</tr>{$filterHeaderRow}</thead>
                 <tbody>{$bodyRows}</tbody>
             </table>
         </div>
         <p class="mt-3 text-sm text-gray-500 print:hidden">{$this->e($pageInfo)}</p>
         HTML;
+    }
+
+    /**
+     * Segunda fila del <thead>, un input/select de filtro alineado bajo cada
+     * columna filtrable (columnas fuera de $filterableFields quedan con una
+     * celda vacia, para mantener la alineacion con el resto de la tabla).
+     * Estos inputs NO son descendientes de <form id="appycrud-filter-form">
+     * (esa tabla se reemplaza entera por AJAX en cada filtrado/orden, fuera
+     * del <form> que vive en renderFilterRow()) — se asocian via el
+     * atributo form="appycrud-filter-form", que el navegador respeta para
+     * FormData() sin importar la posicion en el DOM.
+     * @param Column[] $columns
+     * @param array<string, string> $activeFilters
+     * @param string[]|null $filterableFields
+     */
+    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields): string
+    {
+        $cells = $bulkDeleteEnabled ? '<th class="px-4 py-1.5"></th>' : '';
+
+        foreach ($columns as $column) {
+            $filterable = $filterableFields === null || in_array($column->name, $filterableFields, true);
+
+            if (!$filterable) {
+                $cells .= '<th class="px-4 py-1.5"></th>';
+                continue;
+            }
+
+            $current = $activeFilters[$column->name] ?? '';
+            $onEvent = 'appycrudScheduleFilter(document.getElementById(\'appycrud-filter-form\'))';
+
+            if (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
+                $input = '<select form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" onchange="' . $onEvent . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white">'
+                    . '<option value="">-</option>'
+                    . '<option value="1"' . ($current === '1' ? ' selected' : '') . '>Si</option>'
+                    . '<option value="0"' . ($current === '0' ? ' selected' : '') . '>No</option>'
+                    . '</select>';
+            } else {
+                $input = '<input type="text" form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" oninput="' . $onEvent . '" placeholder="' . $this->e($column->label) . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">';
+            }
+
+            $cells .= '<th class="px-4 py-1.5 font-normal">' . $input . '</th>';
+        }
+
+        $cells .= '<th class="px-4 py-1.5 print:hidden"></th>';
+
+        return '<tr class="bg-gray-50 border-t border-gray-100">' . $cells . '</tr>';
     }
 
     /**
@@ -391,35 +443,27 @@ class TailwindRenderer
      * @param string[]|null $filterableFields columnas permitidas en filtro simple y avanzado; null = todas las visibles
      * @param array<int, array{field: string, op: string, value: mixed, conn: string}> $advancedFilters filas activas, para re-pintar el panel
      */
+    /**
+     * Solo busqueda global + botones (Filtrar/Limpiar/Filtro avanzado) + el
+     * modal del filtro avanzado. Los filtros POR COLUMNA ya no viven aqui —
+     * se renderizan dentro de la propia tabla (ver renderColumnFilterRow()),
+     * asociados a ESTE <form> via el atributo form="appycrud-filter-form"
+     * (la tabla se reemplaza entera por AJAX en cada filtrado/orden, asi que
+     * sus inputs no pueden ser descendientes reales de este <form>, que vive
+     * fuera de #appycrud-list-body y por eso sobrevive a esos reemplazos).
+     */
     private function renderFilterRow(TableSchema $schema, string $baseUrl, array $activeFilters, string $search, string $orderBy, string $orderDir, bool $filtersEnabled, bool $searchEnabled, ?array $filterableFields = null, array $advancedFilters = []): string
     {
         $t = $this->translator;
-        $fields = '';
 
         $filterableColumns = array_values(array_filter(
             $schema->visibleColumns(),
             fn (Column $c) => $filterableFields === null || in_array($c->name, $filterableFields, true),
         ));
 
-        if ($searchEnabled) {
-            $fields .= '<input type="text" name="q" value="' . $this->e($search) . '" placeholder="' . $this->e($t->t('list.search_placeholder')) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[10rem]">';
-        }
-
-        if ($filtersEnabled) {
-            foreach ($filterableColumns as $column) {
-                $current = $activeFilters[$column->name] ?? '';
-
-                if (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
-                    $fields .= '<select name="filter[' . $this->e($column->name) . ']" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white">'
-                        . '<option value="">' . $this->e($column->label) . '</option>'
-                        . '<option value="1"' . ($current === '1' ? ' selected' : '') . '>Si</option>'
-                        . '<option value="0"' . ($current === '0' ? ' selected' : '') . '>No</option>'
-                        . '</select>';
-                } else {
-                    $fields .= '<input type="text" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" placeholder="' . $this->e($column->label) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm">';
-                }
-            }
-        }
+        $searchField = $searchEnabled
+            ? '<input type="text" name="q" value="' . $this->e($search) . '" placeholder="' . $this->e($t->t('list.search_placeholder')) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[10rem]">'
+            : '';
 
         $orderHidden = $orderBy !== ''
             ? '<input type="hidden" name="orderBy" value="' . $this->e($orderBy) . '"><input type="hidden" name="orderDir" value="' . $this->e($orderDir) . '">'
@@ -431,9 +475,9 @@ class TailwindRenderer
             : '';
 
         return <<<HTML
-        <form method="get" action="{$this->e($baseUrl)}" class="mb-4 print:hidden" oninput="appycrudScheduleFilter(this)" onchange="appycrudScheduleFilter(this)" onsubmit="return appycrudSubmitFilters(event, this)">
+        <form id="appycrud-filter-form" method="get" action="{$this->e($baseUrl)}" class="mb-4 print:hidden" oninput="appycrudScheduleFilter(this)" onchange="appycrudScheduleFilter(this)" onsubmit="return appycrudSubmitFilters(event, this)">
             <div class="flex flex-wrap items-center gap-2">
-                {$fields}
+                {$searchField}
                 {$orderHidden}
                 <button type="submit" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$this->e($t->t('list.filter_apply'))}</span></button>
                 <a href="{$this->e($baseUrl)}" class="inline-flex items-center gap-1.5 bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-md text-sm hover:bg-red-100">{$this->icon('x-circle')}<span>{$this->e($t->t('list.filter_clear'))}</span></a>
@@ -492,7 +536,7 @@ class TailwindRenderer
                 <template id="appycrud-af-row-template">{$templateRow}</template>
                 <div id="appycrud-advanced-filter-rows" class="space-y-3">{$rowsHtml}</div>
                 <div class="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-gray-100">
-                    <button type="button" onclick="appycrudAddFilterRow()" class="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">{$this->icon('plus')}<span>{$addLabel}</span></button>
+                    <button type="button" onclick="appycrudAddFilterRow()" class="inline-flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700">{$this->icon('plus')}<span>{$addLabel}</span></button>
                     <button type="button" onclick="appycrudApplyAdvancedFilter()" class="inline-flex items-center gap-1.5 bg-gray-800 text-white px-4 py-2 rounded-md text-sm hover:bg-gray-900">{$this->icon('search')}<span>{$applyLabel}</span></button>
                 </div>
             </div>

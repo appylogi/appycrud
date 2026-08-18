@@ -348,9 +348,9 @@ class AppyCrud
     /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */
     private function renderListBody(array $get, string $baseUrl): string
     {
-        [$pagination, $filters, $search, $orderBy, $orderDir] = $this->paginateFromRequest($get);
+        [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix);
+        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $advancedFilters, $this->filterableFields);
     }
 
     /** @return array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> */

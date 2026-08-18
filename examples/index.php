@@ -66,6 +66,34 @@ if ($isNew) {
         archivada INTEGER NOT NULL DEFAULT 0,
         creada_en TEXT DEFAULT CURRENT_TIMESTAMP
     )');
+
+    // Se cargan 20+ registros variados por defecto (categorias/prioridades/
+    // etiquetas/completada mezclados) para poder probar filtro simple, filtro
+    // avanzado (AND/OR) y busqueda con datos reales, no con 1-2 filas sueltas.
+    $categoriaIds = [1, 2, 1, 2, 1]; // Trabajo, Personal (3 = Urgente, inactiva, no se usa aqui)
+    $prioridades = ['baja', 'media', 'alta'];
+    $etiquetasPosibles = ['casa', 'oficina', 'viaje'];
+    $insertTarea = $pdo->prepare(
+        'INSERT INTO tareas (titulo, descripcion, categoria_id, prioridad, etiquetas, completada, notas)
+         VALUES (:titulo, :descripcion, :categoria_id, :prioridad, :etiquetas, :completada, :notas)'
+    );
+
+    for ($i = 1; $i <= 24; $i++) {
+        $insertTarea->execute([
+            ':titulo' => 'Tarea de ejemplo ' . $i,
+            ':descripcion' => 'Descripcion generada automaticamente para la tarea numero ' . $i . '.',
+            ':categoria_id' => $categoriaIds[$i % count($categoriaIds)],
+            ':prioridad' => $prioridades[$i % count($prioridades)],
+            ':etiquetas' => $etiquetasPosibles[$i % count($etiquetasPosibles)],
+            ':completada' => $i % 3 === 0 ? 1 : 0,
+            ':notas' => $i % 4 === 0 ? '<p>Nota <b>importante</b> para la tarea ' . $i . '.</p>' : null,
+        ]);
+
+        // Asigna 1-2 colaboradores por tarea (rotando), para poder probar el
+        // multiselect de muchos-a-muchos tambien con datos de ejemplo reales.
+        $tareaId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO tareas_colaboradores (tarea_id, colaborador_id) VALUES ({$tareaId}, " . (($i % 3) + 1) . ')');
+    }
 }
 
 $uploadDir = __DIR__ . '/uploads';

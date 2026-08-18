@@ -355,7 +355,7 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 
 ## Filtros: elegir columnas y constructor avanzado (AND/OR)
 
-Por default, el filtro simple (una fila con un input por columna, arriba del listado) muestra **todas las columnas visibles**. En tablas anchas eso satura la pantalla; `filterableFields` limita cuáles aparecen — y también limita cuáles están disponibles en el constructor avanzado (ver abajo):
+Por default, el filtro simple (una fila con un input **dentro de la propia tabla**, justo debajo de cada encabezado de columna) muestra **todas las columnas visibles**. En tablas anchas eso satura la pantalla; `filterableFields` limita cuáles aparecen — las columnas fuera de la lista quedan con una celda vacía (para no romper la alineación) — y también limita cuáles están disponibles en el constructor avanzado (ver abajo):
 
 ```php
 $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
