@@ -1,10 +1,18 @@
 # AppyCrud
 
+[![Licencia MIT](https://img.shields.io/github/license/appylogi/appycrud?color=4F46E5)](LICENSE)
+[![PHP >= 8.1](https://img.shields.io/badge/PHP-%3E%3D8.1-777bb4?logo=php&logoColor=white)](docs/instalacion.md)
+[![Stars](https://img.shields.io/github/stars/appylogi/appycrud?style=flat&color=yellow)](https://github.com/appylogi/appycrud/stargazers)
+[![Último commit](https://img.shields.io/github/last-commit/appylogi/appycrud)](https://github.com/appylogi/appycrud/commits/master)
+[![Sin dependencias](https://img.shields.io/badge/dependencias-0-brightgreen)](docs/instalacion.md)
+
 Generador de CRUD genérico para PHP, sin framework, sin dependencias externas, con estilos Tailwind precompilados (funciona sin internet). Dale una conexión PDO y el nombre de una tabla, y obtienes listado, crear/editar/ver en modal, borrado (con confirmación, directo o lógico), filtros, búsqueda, orden, exportación, clonado e impresión — todo generado automáticamente a partir de la estructura real de tu tabla.
 
 Código abierto bajo licencia MIT: úsalo gratis en cualquier proyecto, incluido uso comercial, sin licencias ni límites. Si quieres acompañamiento o personalización, [Appylogi](https://appylogi.com) ofrece soporte pago opcional.
 
-🌐 **Sitio y ejemplos en vivo:** [appycrud.appylogi.com](https://appycrud.appylogi.com) — la sección [/demo](https://appycrud.appylogi.com/demo) tiene varios ejemplos ejecutándose de verdad (cada uno en su propia caja de arena, puedes crear/editar/borrar libremente), uno por grupo de características: listado y filtros, relaciones, catálogo de tipos de campo, y modos de borrado.
+🌐 **Sitio y ejemplos en vivo:** [appycrud.appylogi.com](https://appycrud.appylogi.com) — la sección [/demo](https://appycrud.appylogi.com/demo) tiene 5 ejemplos ejecutándose de verdad (cada uno en su propia caja de arena, puedes crear/editar/borrar libremente): listado y filtros, relaciones, catálogo de tipos de campo, modos de borrado, y seguridad (XSS/CSRF/uploads/validación).
+
+⭐ Si te resulta útil, considera darle una estrella al repo — ayuda a que más gente lo encuentre.
 
 ## Características
 
