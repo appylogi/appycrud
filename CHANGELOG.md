@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
-## [Sin publicar]
+## [0.1.1] - 2026-08-19
 
 ### Corregido
 - **CSRF**: los `RowAction` con `method: 'post'` se ejecutaban sin verificar el token CSRF ni el método HTTP. El formulario renderizado sí incluye el campo oculto con el token (dando una falsa sensación de protección), pero `AppyCrud::handle()` nunca lo validaba antes de invocar el handler — cualquier acción de este tipo que modifique datos (ej. "archivar") podía dispararse con una simple petición GET forjada desde otra página (CSRF real) mientras la víctima tuviera sesión activa. Ahora se exige `verifyCsrf($post)` antes de ejecutar el handler de cualquier `RowAction` con `method: 'post'`; si el token no es válido, la petición se ignora (igual que en `delete`/`bulkDelete`). Las acciones con `method: 'get'` (el default) no cambian de comportamiento.
