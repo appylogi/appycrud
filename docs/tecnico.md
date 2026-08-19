@@ -178,6 +178,10 @@ Antes de esta version, `AppyCrud::renderListBody()` desestructuraba solo 5 de lo
 `TailwindRenderer::renderCustomRowAction()` arma tres variantes de HTML segun `method`/`openInModal`/`confirm`:
 
 - `method: 'post'` → un `<form>` con el token CSRF como campo oculto (igual que Eliminar). Si `confirm` esta definido, el submit se intercepta con `appycrudConfirmSubmit()` (el mismo mecanismo que usa el borrado individual).
+
+### Bug real: `method: 'post'` renderizaba el token CSRF pero `handle()` nunca lo verificaba
+
+El punto anterior (el `<form>` con el token oculto "igual que Eliminar") solo describia la mitad de la historia: `TailwindRenderer` si pinta el token, pero `AppyCrud::handle()` ejecutaba el handler de la `RowAction` (linea 220-224, antes del fix) sin llamar a `verifyCsrf($post)` en ningun punto, y sin exigir que la peticion fuera realmente un POST. Cualquier `RowAction` con `method: 'post'` que mutara datos (el propio ejemplo del docblock de `RowAction`, "archivar") podia dispararse con una peticion GET forjada desde otra pagina (`<img src="...?action=archivar&id=5">`) mientras la victima tuviera sesion activa — un CSRF real, con el agravante de que el HTML generado sugeria que ya estaba protegido. El fix agrega, justo antes de invocar el handler: si `$rowAction->method === 'post'` y `!$this->verifyCsrf($post)`, se hace `$this->redirect($baseUrl)` sin ejecutar nada (mismo patron de fallo silencioso que usan `handleDelete`/`handleBulkDelete`). Las acciones con `method: 'get'` (el default) no cambian: nunca pretendieron tener proteccion CSRF, son para lectura/navegacion.
 - `method: 'get'`, `openInModal: true` (default) → un boton que hace `appycrudOpenModal()` (fetch + mostrar el HTML devuelto dentro del dialog), igual que Ver/Editar/Clonar.
 - `method: 'get'`, `openInModal: false` → un `<a href>` normal; si tiene `confirm`, el click se intercepta con `appycrudConfirmAction()` en vez de navegar directo.
 

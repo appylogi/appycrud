@@ -219,6 +219,10 @@ class AppyCrud
 
         foreach ($this->rowActions as $rowAction) {
             if ($rowAction->name === $action) {
+                if ($rowAction->method === 'post' && !$this->verifyCsrf($post)) {
+                    $this->redirect($baseUrl);
+                }
+
                 return ($rowAction->handler)($get['id'] ?? null, $get, $post);
             }
         }

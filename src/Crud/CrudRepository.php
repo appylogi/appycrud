@@ -375,13 +375,6 @@ class CrudRepository
         return $referenceLabels;
     }
 
-    public function bulkDelete(array $primaryKeyValues): void
-    {
-        foreach ($primaryKeyValues as $value) {
-            $this->delete($value);
-        }
-    }
-
     /**
      * Copia los datos de un registro para prellenar un formulario de creacion
      * (nunca inserta por si solo). $excludeColumns permite vaciar columnas
@@ -431,6 +424,10 @@ class CrudRepository
     public function insert(array $data): string
     {
         $data = array_merge($this->filterToKnownColumns($data), $this->insertDefaults);
+
+        if (($pk = $this->schema->primaryKey()) !== null) {
+            unset($data[$pk->name]);
+        }
 
         if ($data === []) {
             throw new RuntimeException('AppyCrud: no hay columnas validas para insertar.');

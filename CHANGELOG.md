@@ -2,6 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [Sin publicar]
+
+### Corregido
+- **CSRF**: los `RowAction` con `method: 'post'` se ejecutaban sin verificar el token CSRF ni el método HTTP. El formulario renderizado sí incluye el campo oculto con el token (dando una falsa sensación de protección), pero `AppyCrud::handle()` nunca lo validaba antes de invocar el handler — cualquier acción de este tipo que modifique datos (ej. "archivar") podía dispararse con una simple petición GET forjada desde otra página (CSRF real) mientras la víctima tuviera sesión activa. Ahora se exige `verifyCsrf($post)` antes de ejecutar el handler de cualquier `RowAction` con `method: 'post'`; si el token no es válido, la petición se ignora (igual que en `delete`/`bulkDelete`). Las acciones con `method: 'get'` (el default) no cambian de comportamiento.
+- `CrudRepository::insert()` no excluía la llave primaria de los datos a insertar, a diferencia de `update()` que sí lo hace explícitamente. Si `insertFields` incluía el nombre de la PK (o un POST manual la forzaba), se generaba un `INSERT` con un valor de autoincremento explícito, inconsistente con `update()` y potencialmente conflictivo según el motor. Ahora `insert()` también excluye la PK de los datos, igual que `update()`.
+- Se eliminó `CrudRepository::bulkDelete()`, un método público sin uso interno que solo borraba filas sin ejecutar los hooks `beforeDelete`/`afterDelete`, sin limpiar archivos subidos y sin limpiar las tablas pivote de relaciones muchos-a-muchos — a diferencia de `AppyCrud::handleBulkDelete()` (la ruta real usada por la librería), que sí hace todo eso por registro. Este método no puede implementarse correctamente a nivel de `CrudRepository` porque no tiene acceso a esa configuración (vive en `AppyCrud`), así que se retira en vez de dejarlo con un comportamiento engañoso. El borrado masivo sigue funcionando igual vía `AppyCrud` (acción `bulkDelete`); esto solo afecta a quien llamaba `CrudRepository::bulkDelete()` directamente.
+
 ## [0.1.0] - 2026-08-19
 
 Primera versión etiquetada.
