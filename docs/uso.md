@@ -498,6 +498,13 @@ Puntos importantes:
 - **Nunca bloquea ni rompe la página**: cualquier fallo de red, timeout, o `allow_url_fopen` desactivado sin `curl` disponible simplemente hace que no se muestre el aviso — no hay excepciones que se propaguen hasta el usuario final.
 - Por qué está apagado por defecto: una librería que se posiciona como "sin sorpresas, sin dependencias, sin llamadas a casa" no debería hacer ninguna petición de red sin que el integrador lo pida explícitamente, ni siquiera una tan inocua como esta.
 
+**El aviso solo informa — nunca actualiza nada por su cuenta.** Al ver el banner, actualizar depende de cómo instalaste AppyCrud:
+
+- **Con Composer**: `composer update appylogi/appycrud`.
+- **Sin Composer (ZIP)**: descarga el ZIP de la [versión más reciente](https://github.com/appylogi/appycrud/releases) y reemplaza los archivos de `appycrud/` en tu proyecto (revisa el `CHANGELOG.md` del release por si hay algún cambio que requiera ajustar tu configuración).
+
+Que la actualización sea siempre una acción manual y explícita es deliberado: una librería que se auto-actualizara sola, sin que el integrador lo apruebe, sería exactamente el tipo de sorpresa que este proyecto busca evitar.
+
 ## Integrarlo con tu propio router
 
 `AppyCrud::handle()` despacha por `$_GET['action']`: `list` (default), `create`, `store`, `edit`, `update`, `delete`, `bulkDelete`, `view`, `clone`, `export`, `print`. Si usas un router propio en vez de un archivo `.php` por tabla, basta con enrutar todas esas acciones al mismo controlador y pasarle `$_GET`/`$_POST` tal cual — AppyCrud no depende de la URL en sí, solo de esos parámetros.
