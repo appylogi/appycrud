@@ -351,6 +351,7 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `uploadDir` | `null` | Ruta absoluta para archivos subidos; obligatorio si hay algún campo `file`. |
 | `uploadUrlPrefix` | `null` | URL pública para el link de descarga en listado/vista; sin esto, solo se muestra el nombre del archivo. |
 | `deleteFilesOnDelete` | `true` | Borra del disco los archivos (columnas `file`) del registro cuando se elimina la fila completa. |
+| `checkForUpdates` | `false` | Aviso descartable de nueva versión disponible, ver [Aviso de nueva versión](#aviso-de-nueva-versión-checkforupdates). |
 
 Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero siguen siendo consultas al servidor — no se pierden resultados en tablas con miles de filas y paginación, a diferencia de un filtro puramente en JavaScript sobre lo ya cargado en pantalla.
 
@@ -477,7 +478,25 @@ Esto es una restricción real, no solo visual: aunque el HTML del formulario nun
 
 - **SQL**: todo el acceso a datos usa *prepared statements*; los valores de usuario nunca se concatenan en el SQL.
 - **XSS**: toda salida a HTML pasa por `htmlspecialchars`.
-- **CSRF**: activado por default (`'csrf' => true`). Genera un token por sesión (`$_SESSION`) y lo exige en `store`/`update`/`delete`/`bulkDelete`; los formularios y botones de borrado ya lo incluyen automáticamente, no hay que hacer nada extra. **Requiere `session_start()`** antes de instanciar `AppyCrud` — si no hay sesión activa, lanza `RuntimeException` con un mensaje explicando qué falta. Si tu aplicación ya resuelve CSRF a otro nivel (un framework con su propio middleware, por ejemplo) y no quieres que se dupliquen tokens, desactívalo con `'csrf' => false`.
+- **CSRF**: activado por default (`'csrf' => true`). Genera un token por sesión (`$_SESSION`) y lo exige en `store`/`update`/`delete`/`bulkDelete`, y también en cualquier [`RowAction`](#acciones-custom-por-fila) con `method: 'post'`; los formularios y botones de borrado ya lo incluyen automáticamente, no hay que hacer nada extra. **Requiere `session_start()`** antes de instanciar `AppyCrud` — si no hay sesión activa, lanza `RuntimeException` con un mensaje explicando qué falta. Si tu aplicación ya resuelve CSRF a otro nivel (un framework con su propio middleware, por ejemplo) y no quieres que se dupliquen tokens, desactívalo con `'csrf' => false`.
+
+## Aviso de nueva versión (`checkForUpdates`)
+
+Desactivado por defecto — activarlo es opcional y explícito:
+
+```php
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'checkForUpdates' => true,
+]);
+```
+
+Con esto activado, el listado consulta (como mucho una vez cada 24 horas, con cache en disco vía `sys_get_temp_dir()`) la API pública de Packagist para saber cuál es la última versión publicada de `appylogi/appycrud`. Si hay una más nueva que la instalada, aparece un aviso descartable arriba del listado con un link a las notas del release; al descartarlo (guardado en `localStorage` del navegador, por versión) no vuelve a aparecer hasta que salga una versión más nueva todavía.
+
+Puntos importantes:
+
+- **No envía ningún dato del proyecto** — ni URL, ni configuración, ni nada identificable. Solo pregunta "¿cuál es la última versión de este paquete?", la misma pregunta que ya le hace `composer require`/`composer update` a Packagist.
+- **Nunca bloquea ni rompe la página**: cualquier fallo de red, timeout, o `allow_url_fopen` desactivado sin `curl` disponible simplemente hace que no se muestre el aviso — no hay excepciones que se propaguen hasta el usuario final.
+- Por qué está apagado por defecto: una librería que se posiciona como "sin sorpresas, sin dependencias, sin llamadas a casa" no debería hacer ninguna petición de red sin que el integrador lo pida explícitamente, ni siquiera una tan inocua como esta.
 
 ## Integrarlo con tu propio router
 

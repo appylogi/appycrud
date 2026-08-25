@@ -10,6 +10,7 @@ use Appylogi\AppyCrud\Crud\HookAbortException;
 use Appylogi\AppyCrud\Crud\HtmlSanitizer;
 use Appylogi\AppyCrud\Crud\ManyToMany;
 use Appylogi\AppyCrud\Crud\RowAction;
+use Appylogi\AppyCrud\Crud\UpdateChecker;
 use Appylogi\AppyCrud\Crud\Validator;
 use Appylogi\AppyCrud\Database\Connection;
 use Appylogi\AppyCrud\Lang\Translator;
@@ -68,6 +69,13 @@ use InvalidArgumentException;
  *     y se limpian antes de eliminarlo (evita filas huerfanas en el pivote).
  *   - 'rowActions' => Crud\RowAction[] acciones custom agregadas al menu de
  *     cada fila (junto a Ver/Editar/Clonar/Eliminar). Ver esa clase.
+ *   - 'checkForUpdates' => bool (default false). Si esta activo, el listado
+ *     consulta (como mucho una vez cada 24h, con cache en disco) la API
+ *     publica de Packagist para ver si hay una version mas nueva de AppyCrud,
+ *     y muestra un aviso descartable arriba del listado si la hay. No envia
+ *     ningun dato del proyecto — solo pregunta la ultima version publicada.
+ *     Cualquier fallo de red se ignora en silencio (nunca bloquea la pagina).
+ *     Ver Crud\UpdateChecker.
  *   - 'uploadDir' => ruta absoluta donde se guardan los archivos subidos.
  *     Obligatorio si alguna columna usa inputType 'file'. Debe existir y ser
  *     escribible, y NO deberia ser accesible directamente por HTTP con
@@ -80,6 +88,9 @@ use InvalidArgumentException;
  */
 class AppyCrud
 {
+    /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
+    public const VERSION = '0.1.3';
+
     private TableSchema $schema;
     private CrudRepository $repository;
     private TailwindRenderer $renderer;
@@ -96,6 +107,7 @@ class AppyCrud
     private array $manyToMany;
     /** @var RowAction[] */
     private array $rowActions;
+    private bool $checkForUpdates;
     private ?string $uploadDir;
     private ?string $uploadUrlPrefix;
     private bool $deleteFilesOnDelete;
@@ -157,6 +169,9 @@ class AppyCrud
         }
 
         $this->rowActions = $options['rowActions'] ?? [];
+        // Desactivado por defecto: no queremos que ninguna instalacion consulte
+        // Packagist sin que el integrador lo pida explicitamente. Ver UpdateChecker.
+        $this->checkForUpdates = $options['checkForUpdates'] ?? false;
 
         $this->uploadDir = $options['uploadDir'] ?? null;
         $this->uploadUrlPrefix = $options['uploadUrlPrefix'] ?? null;
@@ -354,7 +369,13 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions);
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions, $this->availableUpdate());
+    }
+
+    /** Solo se consulta si 'checkForUpdates' esta activo; nunca lanza excepciones. */
+    private function availableUpdate(): ?array
+    {
+        return $this->checkForUpdates ? UpdateChecker::check(self::VERSION) : null;
     }
 
     /** Fragmento solo de tabla+paginacion, usado por el filtrado/busqueda por AJAX (sin recargar la pagina). */

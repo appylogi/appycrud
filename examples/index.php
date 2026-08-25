@@ -155,6 +155,11 @@ $locale = $_GET['lang'] ?? 'es';
 //   'editFields'   => ['titulo', 'completada'],    // solo estos al editar
 $options = [
     'deleteMode' => \Appylogi\AppyCrud\Crud\DeleteMode::CONFIRM,
+    // Consulta Packagist como mucho 1 vez cada 24h (con cache en disco) y
+    // muestra un aviso descartable si hay una version mas nueva publicada.
+    // Apagado por defecto en AppyCrud; se activa aqui solo para que se vea
+    // en el ejemplo. No envia ningun dato del proyecto.
+    'checkForUpdates' => true,
     'export' => true,
     'bulkDelete' => true,
     'filters' => true,

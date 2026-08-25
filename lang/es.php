@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'update.banner' => 'Hay una nueva version de AppyCrud disponible: v:version.',
+    'update.view_changes' => 'Ver cambios',
+    'update.dismiss' => 'Descartar',
     'list.title' => 'Listado de :table',
     'list.new' => 'Nuevo',
     'list.edit' => 'Editar',

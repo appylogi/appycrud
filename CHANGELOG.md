@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.3] - 2026-08-19
+
+### Agregado
+- Nueva opción `checkForUpdates` (default `false`) en `AppyCrud`: si se activa, el listado consulta como mucho una vez cada 24h (cache en disco) la API pública de Packagist y muestra un aviso descartable arriba del listado cuando hay una versión más nueva publicada, con link a las notas del release. No envía ningún dato del proyecto, y cualquier fallo de red se ignora en silencio sin bloquear la página. Ver `Crud\UpdateChecker` y [docs/uso.md](docs/uso.md#aviso-de-nueva-versión-checkforupdates).
+
 ## [0.1.2] - 2026-08-19
 
 ### Corregido

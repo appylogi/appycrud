@@ -50,6 +50,7 @@ class TailwindRenderer
         ?array $filterableFields = null,
         array $advancedFilters = [],
         array $perPageOptions = [10, 20, 50, 100],
+        ?array $updateInfo = null,
     ): string {
         $t = $this->translator;
         $filtersEnabled = $features['filters'] ?? true;
@@ -57,6 +58,7 @@ class TailwindRenderer
 
         $createUrl = $this->e($baseUrl) . '?action=create&ajax=1';
         $modal = $this->renderModalShell($csrfToken);
+        $updateBanner = $updateInfo !== null ? $this->renderUpdateBanner($updateInfo) : '';
         $searchAndFilters = ($filtersEnabled || $searchEnabled)
             ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled, $filterableFields, $advancedFilters, $referenceOptions)
             : '';
@@ -73,6 +75,7 @@ class TailwindRenderer
 
         return <<<HTML
         <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
+            {$updateBanner}
             <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
                 <div class="flex items-center gap-2 print:hidden">{$toolbar}</div>
@@ -495,6 +498,44 @@ class TailwindRenderer
         return '<a href="' . $url . '" class="' . $itemClass . '">' . $iconHtml . $labelHtml . '</a>';
     }
 
+    /**
+     * Aviso descartable de version nueva disponible. $updateInfo viene de
+     * Crud\UpdateChecker::check(): ['version' => '0.1.3', 'url' => '...'].
+     * El descarte se recuerda en localStorage por version (data-appycrud-update-version),
+     * asi que si sale una version mas nueva todavia, el aviso vuelve a aparecer.
+     */
+    private function renderUpdateBanner(array $updateInfo): string
+    {
+        $t = $this->translator;
+        $version = $this->e($updateInfo['version']);
+        $url = $this->e($updateInfo['url']);
+        $message = $this->e($t->t('update.banner', ['version' => $updateInfo['version']]));
+        $viewLabel = $this->e($t->t('update.view_changes'));
+        $dismissLabel = $this->e($t->t('update.dismiss'));
+
+        return <<<HTML
+        <div data-appycrud-update-version="{$version}" class="hidden items-center justify-between gap-3 mb-4 px-4 py-2.5 rounded-md border border-blue-200 bg-blue-50 text-sm text-blue-800" id="appycrud-update-banner">
+            <div class="flex items-center gap-2">{$this->icon('sparkles')}<span>{$message}</span></div>
+            <div class="flex items-center gap-3 flex-shrink-0">
+                <a href="{$url}" target="_blank" rel="noopener" class="font-medium underline hover:no-underline">{$viewLabel}</a>
+                <button type="button" onclick="appycrudDismissUpdateBanner('{$version}')" class="text-blue-400 hover:text-blue-700" aria-label="{$dismissLabel}">{$this->icon('x')}</button>
+            </div>
+        </div>
+        <script>
+        (function () {
+            var el = document.getElementById('appycrud-update-banner');
+            if (!el) return;
+            var version = el.getAttribute('data-appycrud-update-version');
+            try {
+                if (localStorage.getItem('appycrud_update_dismissed') === version) return;
+            } catch (e) {}
+            el.classList.remove('hidden');
+            el.classList.add('flex');
+        })();
+        </script>
+        HTML;
+    }
+
     private function renderExportMenu(string $baseUrl, array $activeFilters, string $search, array $advancedFilters = []): string
     {
         $t = $this->translator;
@@ -746,6 +787,11 @@ class TailwindRenderer
         }
         function appycrudCloseModal() {
             document.getElementById('appycrud-dialog').close();
+        }
+        function appycrudDismissUpdateBanner(version) {
+            try { localStorage.setItem('appycrud_update_dismissed', version); } catch (e) {}
+            var el = document.getElementById('appycrud-update-banner');
+            if (el) el.remove();
         }
 
         function appycrudTogglePassword(button) {
@@ -1624,6 +1670,7 @@ class TailwindRenderer
             'x-circle' => '<circle cx="12" cy="12" r="9" /><path d="M9.5 9.5l5 5M14.5 9.5l-5 5" />',
             'sliders' => '<path d="M4 6h6M14 6h6M4 12h10M18 12h2M4 18h6M14 18h6" /><circle cx="12" cy="6" r="2" /><circle cx="16" cy="12" r="2" /><circle cx="12" cy="18" r="2" />',
             'x' => '<path d="M18 6 6 18M6 6l12 12" />',
+            'sparkles' => '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />',
             'link' => '<path d="M9 15l6-6" /><path d="M11 6l1-1a4 4 0 1 1 6 6l-1 1" /><path d="M13 18l-1 1a4 4 0 1 1-6-6l1-1" />',
             'unlink' => '<path d="M9 15l6-6" /><path d="M11 6l1-1a4 4 0 1 1 6 6l-1 1" /><path d="M13 18l-1 1a4 4 0 1 1-6-6l1-1" /><path d="M4 4l16 16" />',
             'align-left' => '<path d="M4 6h16M4 12h10M4 18h14" />',

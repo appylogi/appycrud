@@ -35,6 +35,7 @@ Código abierto bajo licencia MIT: úsalo gratis en cualquier proyecto, incluido
 - **Carga de archivos**, con nombre aleatorio seguro, conservación del archivo existente al editar sin re-subir, casilla para quitarlo, y borrado físico automático al eliminar el registro.
 - **i18n** (español/inglés incluido, agregar un idioma es un archivo nuevo en `lang/`).
 - **Un solo sistema de diseño** (Tailwind, precompilado) para mantener todo consistente; la arquitectura permite agregar otros temas más adelante.
+- **Aviso opcional de nueva versión** (`checkForUpdates`, apagado por defecto): consulta Packagist como mucho una vez al día y muestra un banner descartable si hay una versión más nueva — sin enviar ningún dato del proyecto y sin bloquear la página si falla la red.
 
 ## Instalación rápida
 
