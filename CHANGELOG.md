@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
-## [Sin publicar]
+## [0.1.2] - 2026-08-19
 
 ### Corregido
 - `perPage: 0` (en las opciones del constructor o en `TableConfig`) causaba division por cero en la paginacion (`ceil($total / 0)`), un warning en PHP 8 y un `LIMIT 0` sin sentido. Ahora se fija un minimo de 1.
