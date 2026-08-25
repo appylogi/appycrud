@@ -175,6 +175,8 @@ class TableIntrospector
 
     private function introspectPgsql(Connection $connection, string $table): array
     {
+        // table_schema = current_schema() evita mezclar columnas de una tabla
+        // con el mismo nombre en otro schema (ej. public.usuarios vs auditoria.usuarios).
         $sql = "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, c.character_maximum_length,
                        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key
                 FROM information_schema.columns c
@@ -182,10 +184,10 @@ class TableIntrospector
                     SELECT kcu.column_name
                     FROM information_schema.table_constraints tc
                     JOIN information_schema.key_column_usage kcu
-                        ON tc.constraint_name = kcu.constraint_name AND tc.table_name = kcu.table_name
-                    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = :table1
+                        ON tc.constraint_name = kcu.constraint_name AND tc.table_name = kcu.table_name AND tc.table_schema = kcu.table_schema
+                    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = :table1 AND tc.table_schema = current_schema()
                 ) pk ON pk.column_name = c.column_name
-                WHERE c.table_name = :table2
+                WHERE c.table_name = :table2 AND c.table_schema = current_schema()
                 ORDER BY c.ordinal_position";
 
         $stmt = $connection->pdo()->prepare($sql);

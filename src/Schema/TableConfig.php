@@ -52,8 +52,19 @@ class TableConfig
         }
 
         foreach ($overrides as $property => $value) {
-            if (property_exists($column, $property)) {
+            if (!property_exists($column, $property)) {
+                continue;
+            }
+
+            try {
                 $column->$property = $value;
+            } catch (\TypeError $e) {
+                $type = get_debug_type($value);
+                throw new \InvalidArgumentException(
+                    "AppyCrud: el override '{$property}' de la columna '{$column->name}' recibio un valor de tipo "
+                    . "'{$type}' que Column::\${$property} no acepta. Revisa docs/uso.md#tableconfig-overrides-por-columna.",
+                    previous: $e
+                );
             }
         }
 

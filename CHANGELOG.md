@@ -2,6 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [Sin publicar]
+
+### Corregido
+- `perPage: 0` (en las opciones del constructor o en `TableConfig`) causaba division por cero en la paginacion (`ceil($total / 0)`), un warning en PHP 8 y un `LIMIT 0` sin sentido. Ahora se fija un minimo de 1.
+- La introspeccion de PostgreSQL no filtraba por `table_schema`: en una base con la misma tabla en dos schemas (ej. `public.usuarios` y `auditoria.usuarios`) podia mezclar columnas de ambas. Ahora se filtra por `current_schema()`, igual que la introspeccion de MySQL ya filtraba por `DATABASE()`.
+- `TableConfig::applyTo()` lanzaba un `TypeError` crudo y poco claro si un override tenia el tipo equivocado (ej. `['label' => null]` en vez de un string). Ahora lanza `InvalidArgumentException` con el nombre de la columna, la propiedad y el tipo recibido.
+
 ## [0.1.1] - 2026-08-19
 
 ### Corregido

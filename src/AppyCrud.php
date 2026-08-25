@@ -165,7 +165,7 @@ class AppyCrud
         // Precedencia: lo que fijo esta tabla en su TableConfig > la opcion
         // 'perPage'/'perPageOptions' del array de opciones del constructor >
         // default final (20 / [10, 20, 50, 100]) si nadie configuro nada.
-        $this->perPage = $config?->perPage() ?? (int) ($options['perPage'] ?? 20);
+        $this->perPage = max(1, $config?->perPage() ?? (int) ($options['perPage'] ?? 20));
         $this->perPageOptions = $config?->perPageOptions() ?? ($options['perPageOptions'] ?? [10, 20, 50, 100]);
 
         $hasFileColumn = false;
