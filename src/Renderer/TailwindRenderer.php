@@ -449,6 +449,7 @@ class TailwindRenderer
         $deleteForm = '<form method="post" action="' . $this->e($baseUrl) . '?action=delete&id=' . $this->e((string) $pkValue) . '"' . $deleteSubmit . '>' . $csrfField . '%s</form>';
 
         $editButton = '<button type="button" onclick="appycrudOpenModal(\'' . $editUrl . '\')" class="%s px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-300%s">' . $this->icon('edit') . '<span>' . $this->e($t->t('list.edit')) . '</span></button>';
+        $viewButton = '<button type="button" onclick="appycrudOpenModal(\'' . $viewUrl . '\')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 hover:border-gray-300">' . $this->icon('eye') . '<span>' . $this->e($t->t('list.view')) . '</span></button>';
 
         // Con pocas acciones se muestran todas en linea; con varias, las
         // secundarias se agrupan en un menu para no saturar la fila.
@@ -458,6 +459,10 @@ class TailwindRenderer
             $inline = $editEnabled ? sprintf($editButton, 'inline-flex items-center gap-1', '') : '';
             if ($deleteEnabled) {
                 $inline .= sprintf($deleteForm, '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+            } elseif ($viewEnabled && !$editEnabled) {
+                // Sin editar ni eliminar, "Ver" es la unica accion disponible -- mostrarla
+                // inline en vez de perderla (viewEnabled ya cuenta en $extraCount).
+                $inline .= $viewButton;
             }
 
             return $inline === '' ? '' : '<span class="inline-flex items-center gap-3">' . $inline . '</span>';

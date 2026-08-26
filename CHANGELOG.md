@@ -7,6 +7,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ### Agregado
 - Nuevas opciones `create` y `edit` (default `true`) en `AppyCrud`, con el mismo comportamiento que `delete`: ocultan el boton/accion correspondiente en la UI y ademas rechazan `action=create`/`store` o `action=edit`/`update` en el servidor. Equivalentes a `unsetAdd()`/`unsetEdit()` en GroceryCrud — utiles para vistas de solo-lectura segun el rol del usuario. Ver [docs/uso.md](docs/uso.md#opciones-de-appycrud).
 
+### Corregido
+- El boton "Ver" no aparecia cuando era la unica accion disponible en la fila (`view` activo pero `edit`/`delete`/`clone` desactivados y sin row actions custom) -- se perdia silenciosamente en vez de mostrarse en linea junto al resto de acciones.
+
 ## [0.1.6] - 2026-08-26
 
 ### Agregado
