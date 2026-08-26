@@ -344,6 +344,7 @@ El cuarto argumento es el idioma (`'es'`/`'en'`, ver [i18n](#i18n)); el quinto e
 
 ```php
 $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'delete' => true,
     'deleteMode' => DeleteMode::SOFT,
     'softDeleteColumn' => 'eliminado',
     'clone' => true,
@@ -362,7 +363,8 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 
 | Opción | Default | Descripción |
 |---|---|---|
-| `deleteMode` | `DeleteMode::CONFIRM` | `CONFIRM` pregunta con un modal propio; `DIRECT` borra sin preguntar; `SOFT` no borra, actualiza `softDeleteColumn`. |
+| `delete` | `true` | Si es `false`, quita el botón/acción Eliminar (individual y masivo) de la UI y **también** rechaza `action=delete`/`action=bulkDelete` en el servidor (no es solo cosmético). Para tablas donde borrar no debe ser posible — equivalente a `unsetDelete()` en GroceryCrud. |
+| `deleteMode` | `DeleteMode::CONFIRM` | `CONFIRM` pregunta con un modal propio; `DIRECT` borra sin preguntar; `SOFT` no borra, actualiza `softDeleteColumn`. Sin efecto si `delete` es `false`. |
 | `softDeleteColumn` | `null` | Obligatorio si `deleteMode` es `SOFT`. Debe ser una columna existente. |
 | `export` | `true` | Menú de exportar (CSV / Excel / Markdown). |
 | `bulkDelete` | `true` | Checkboxes + borrado masivo (respeta `deleteMode`). |

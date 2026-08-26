@@ -90,7 +90,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.5';
+    public const VERSION = '0.1.6';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -144,6 +144,7 @@ class AppyCrud
 
         $this->features = [
             'export' => $options['export'] ?? true,
+            'delete' => $options['delete'] ?? true,
             'bulkDelete' => $options['bulkDelete'] ?? true,
             'filters' => $options['filters'] ?? true,
             'search' => $options['search'] ?? true,
@@ -571,7 +572,7 @@ class AppyCrud
 
     private function handleDelete(mixed $id, string $baseUrl, array $post = []): string
     {
-        if ($this->verifyCsrf($post) && $this->runBeforeDelete($id)) {
+        if (($this->features['delete'] ?? true) && $this->verifyCsrf($post) && $this->runBeforeDelete($id)) {
             $this->deleteUploadedFilesFor($id);
             $this->deleteManyToManyFor($id);
             $this->repository->delete($id);
@@ -585,7 +586,7 @@ class AppyCrud
     {
         $ids = $post['ids'] ?? [];
 
-        if ($this->verifyCsrf($post) && is_array($ids) && $ids !== []) {
+        if (($this->features['delete'] ?? true) && $this->verifyCsrf($post) && is_array($ids) && $ids !== []) {
             foreach ($ids as $id) {
                 if ($this->runBeforeDelete($id)) {
                     $this->deleteUploadedFilesFor($id);

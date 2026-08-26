@@ -157,7 +157,8 @@ class TailwindRenderer
         $columns = $schema->visibleColumns();
         $pk = $schema->primaryKey();
 
-        $bulkDeleteEnabled = ($features['bulkDelete'] ?? true) && $pk !== null;
+        $deleteEnabled = $features['delete'] ?? true;
+        $bulkDeleteEnabled = ($features['bulkDelete'] ?? true) && $deleteEnabled && $pk !== null;
         $viewEnabled = $features['view'] ?? true;
         $cloneEnabled = $features['clone'] ?? true;
 
@@ -205,7 +206,7 @@ class TailwindRenderer
                 $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $cellContent . '</td>';
             }
 
-            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions) . '</td>';
+            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions, $deleteEnabled) . '</td>';
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
         }
@@ -431,7 +432,7 @@ class TailwindRenderer
     }
 
     /** @param array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> $rowActions */
-    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = '', array $rowActions = []): string
+    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = '', array $rowActions = [], bool $deleteEnabled = true): string
     {
         $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
         $viewUrl = $this->e($baseUrl) . '?action=view&id=' . $this->e((string) $pkValue) . '&ajax=1';
@@ -448,11 +449,13 @@ class TailwindRenderer
 
         // Con pocas acciones se muestran todas en linea; con varias, las
         // secundarias se agrupan en un menu para no saturar la fila.
-        $extraCount = ($viewEnabled ? 1 : 0) + ($cloneEnabled ? 1 : 0) + 1 + count($rowActions); // +1 por Eliminar, siempre presente
+        $extraCount = ($viewEnabled ? 1 : 0) + ($cloneEnabled ? 1 : 0) + ($deleteEnabled ? 1 : 0) + count($rowActions);
 
         if ($extraCount <= 1) {
             $inline = sprintf($editButton, 'inline-flex items-center gap-1', '');
-            $inline .= sprintf($deleteForm, '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+            if ($deleteEnabled) {
+                $inline .= sprintf($deleteForm, '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+            }
 
             return '<span class="inline-flex items-center gap-3">' . $inline . '</span>';
         }
@@ -467,7 +470,9 @@ class TailwindRenderer
         foreach ($rowActions as $action) {
             $menuItems .= $this->renderCustomRowAction($action, $pkValue, $baseUrl, $csrfToken);
         }
-        $menuItems .= sprintf($deleteForm, '<button type="submit" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+        if ($deleteEnabled) {
+            $menuItems .= sprintf($deleteForm, '<button type="submit" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
+        }
 
         return '<span class="inline-flex items-center gap-3">'
             . sprintf($editButton, 'inline-flex items-center gap-1', '')

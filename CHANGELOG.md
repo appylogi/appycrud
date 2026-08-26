@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.6] - 2026-08-26
+
+### Agregado
+- Nueva opción `delete` (default `true`) en `AppyCrud`: si se pone en `false`, oculta el botón/acción Eliminar (individual y masivo) en la UI y además rechaza `action=delete`/`action=bulkDelete` en el servidor — no es solo cosmético. Equivalente a `unsetDelete()` en GroceryCrud, para tablas donde borrar no debe ser posible. Ver [docs/uso.md](docs/uso.md#opciones-de-appycrud).
+
 ## [0.1.5] - 2026-08-26
 
 ### Agregado
