@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.9] - 2026-08-26
+
+### Corregido
+- Los dropdown/enum estaticos (`Column::$options`, sin `reference` a otra tabla) mostraban el valor crudo guardado en listado, vista de detalle, impresion y exportacion (CSV/Excel/Markdown) en vez de su label — solo el formulario de edicion resolvia el label correctamente. Ahora se resuelve igual que una relacion en todos esos lugares.
+
 ## [0.1.8] - 2026-08-26
 
 ### Agregado

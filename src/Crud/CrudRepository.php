@@ -346,7 +346,7 @@ class CrudRepository
                         continue;
                     }
 
-                    $displayRow[$column->name] = $column->reference !== null
+                    $displayRow[$column->name] = ($column->reference !== null || $column->options !== [])
                         ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                         : $rawValue;
                 }
@@ -370,6 +370,13 @@ class CrudRepository
                 foreach ($this->referenceOptions($column) as $option) {
                     $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
                 }
+                continue;
+            }
+
+            // Dropdown/enum estaticos (Column::$options, sin reference a otra tabla)
+            // tambien resuelven su label en la exportacion, igual que una relacion.
+            foreach ($column->options as $option) {
+                $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
             }
         }
 

@@ -171,6 +171,17 @@ class TailwindRenderer
                 $referenceLabels[$columnName][(string) $option['value']] = (string) $option['label'];
             }
         }
+        // Los dropdown/enum estaticos (Column::$options, sin reference a otra tabla)
+        // tambien resuelven su label, igual que una relacion.
+        foreach ($schema->columns() as $column) {
+            if ($column->reference !== null || $column->options === []) {
+                continue;
+            }
+
+            foreach ($column->options as $option) {
+                $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
+            }
+        }
 
         $bulkHeaderCell = $bulkDeleteEnabled
             ? '<th class="px-4 py-2 text-left print:hidden">' . $this->renderBulkDeleteControl($schema, $baseUrl, $deleteMode, $activeFilters, $search) . '</th>'
@@ -196,7 +207,7 @@ class TailwindRenderer
 
             foreach ($columns as $column) {
                 $rawValue = (string) ($row[$column->name] ?? '');
-                $displayValue = $column->reference !== null
+                $displayValue = ($column->reference !== null || $column->options !== [])
                     ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                     : $rawValue;
 
@@ -1270,11 +1281,22 @@ class TailwindRenderer
                 $referenceLabels[$columnName][(string) $option['value']] = (string) $option['label'];
             }
         }
+        // Los dropdown/enum estaticos (Column::$options, sin reference a otra tabla)
+        // tambien resuelven su label, igual que una relacion.
+        foreach ($schema->columns() as $column) {
+            if ($column->reference !== null || $column->options === []) {
+                continue;
+            }
+
+            foreach ($column->options as $option) {
+                $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
+            }
+        }
 
         $rows = '';
         foreach ($schema->visibleColumns() as $column) {
             $rawValue = (string) ($values[$column->name] ?? '');
-            $displayValue = $column->reference !== null
+            $displayValue = ($column->reference !== null || $column->options !== [])
                 ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                 : $rawValue;
 
@@ -1327,11 +1349,22 @@ class TailwindRenderer
                 $referenceLabels[$columnName][(string) $option['value']] = (string) $option['label'];
             }
         }
+        // Los dropdown/enum estaticos (Column::$options, sin reference a otra tabla)
+        // tambien resuelven su label, igual que una relacion.
+        foreach ($schema->columns() as $column) {
+            if ($column->reference !== null || $column->options === []) {
+                continue;
+            }
+
+            foreach ($column->options as $option) {
+                $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
+            }
+        }
 
         $rows = '';
         foreach ($schema->visibleColumns() as $column) {
             $rawValue = (string) ($values[$column->name] ?? '');
-            $displayValue = $column->reference !== null
+            $displayValue = ($column->reference !== null || $column->options !== [])
                 ? ($referenceLabels[$column->name][$rawValue] ?? $rawValue)
                 : $rawValue;
 
