@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.10] - 2026-08-26
+
+### Corregido
+- El label de una relacion (`reference`) guardado en una fila no resolvia en listado/vista/edicion/impresion/exportacion si la tabla referenciada tenia mas de 500 filas y el valor guardado no caia entre las primeras 500 por orden alfabetico de label (ej. una ciudad como "BOGOTA" en una tabla de miles de ciudades) — se veia el valor crudo guardado (el id) en vez del nombre. `referenceOptions()` ahora siempre incluye el label de los valores realmente presentes en la(s) fila(s) que se estan mostrando, ademas del top-500 usado para poblar el `<select>`.
+
 ## [0.1.9] - 2026-08-26
 
 ### Corregido

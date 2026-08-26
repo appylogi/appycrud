@@ -90,7 +90,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.9';
+    public const VERSION = '0.1.10';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -256,20 +256,9 @@ class AppyCrud
 
         return match ($action) {
             'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null)),
-            'edit' => $this->renderer->renderForm($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($get['id'] ?? null)),
-            'view' => $this->renderer->renderView($this->schema, $this->repository->find($get['id'] ?? '') ?? [], $baseUrl, (string) ($get['id'] ?? ''), $this->referenceOptions(), $this->manyToManyViewData($get['id'] ?? null), $this->uploadUrlPrefix),
-            'clone' => $this->renderer->renderForm(
-                $this->schema,
-                $this->repository->cloneData($get['id'] ?? '', $this->features['cloneExcludeColumns'], $this->features['cloneSuffixColumn'], $this->features['cloneSuffix']) ?? [],
-                $baseUrl,
-                false,
-                $this->referenceOptions(),
-                [],
-                $this->csrfToken(),
-                '',
-                $this->insertFields,
-                $this->manyToManyFormData(null),
-            ),
+            'edit' => $this->handleEdit($get, $baseUrl),
+            'view' => $this->handleView($get, $baseUrl),
+            'clone' => $this->handleClone($get, $baseUrl),
             'store' => $this->handleStore($post, $baseUrl, $files),
             'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl, $files),
             'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl, $post),
@@ -280,14 +269,24 @@ class AppyCrud
         };
     }
 
-    /** @return array<string, array<int, array{value: mixed, label: string}>> */
-    private function referenceOptions(): array
+    /**
+     * $rows: fila(s) que se van a mostrar con estas opciones (form de edicion,
+     * fila de vista/impresion, o todas las filas de la pagina actual del
+     * listado) -- garantiza que el label del valor ya guardado en esas filas
+     * resuelva aunque la tabla referenciada sea mas grande que el limite del
+     * <select> (500 por defecto). Sin filas (ej. formulario de creacion en
+     * blanco) solo se listan las primeras $limit opciones, como siempre.
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, array<int, array{value: mixed, label: string}>>
+     */
+    private function referenceOptions(array $rows = []): array
     {
         $options = [];
 
         foreach ($this->schema->columns() as $column) {
             if ($column->reference !== null) {
-                $options[$column->name] = $this->repository->referenceOptions($column);
+                $mustInclude = array_map(fn ($row) => $row[$column->name] ?? null, $rows);
+                $options[$column->name] = $this->repository->referenceOptions($column, mustIncludeValues: $mustInclude);
             }
         }
 
@@ -381,7 +380,28 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions, $this->availableUpdate(), $this->config?->title(), $this->config?->subtitle());
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions($pagination['rows']), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions, $this->availableUpdate(), $this->config?->title(), $this->config?->subtitle());
+    }
+
+    private function handleEdit(array $get, string $baseUrl): string
+    {
+        $row = $this->repository->find($get['id'] ?? '') ?? [];
+
+        return $this->renderer->renderForm($this->schema, $row, $baseUrl, true, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($get['id'] ?? null));
+    }
+
+    private function handleView(array $get, string $baseUrl): string
+    {
+        $row = $this->repository->find($get['id'] ?? '') ?? [];
+
+        return $this->renderer->renderView($this->schema, $row, $baseUrl, (string) ($get['id'] ?? ''), $this->referenceOptions([$row]), $this->manyToManyViewData($get['id'] ?? null), $this->uploadUrlPrefix);
+    }
+
+    private function handleClone(array $get, string $baseUrl): string
+    {
+        $row = $this->repository->cloneData($get['id'] ?? '', $this->features['cloneExcludeColumns'], $this->features['cloneSuffixColumn'], $this->features['cloneSuffix']) ?? [];
+
+        return $this->renderer->renderForm($this->schema, $row, $baseUrl, false, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null));
     }
 
     /** Solo se consulta si 'checkForUpdates' esta activo; nunca lanza excepciones. */
@@ -395,7 +415,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $advancedFilters, $this->filterableFields, $this->perPageOptions);
+        return $this->renderer->renderListBody($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions($pagination['rows']), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $advancedFilters, $this->filterableFields, $this->perPageOptions);
     }
 
     /** @return array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> */
@@ -490,7 +510,7 @@ class AppyCrud
 
         if (!$this->verifyCsrf($post)) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
 
         $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields)));
@@ -500,7 +520,7 @@ class AppyCrud
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors, $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
 
         if (($beforeInsert = $this->hook('beforeInsert')) !== null) {
@@ -508,7 +528,7 @@ class AppyCrud
                 $post = $beforeInsert($post);
             } catch (HookAbortException $e) {
                 http_response_code(422);
-                return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), $e->getMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+                return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $e->getMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
             }
         }
 
@@ -519,7 +539,7 @@ class AppyCrud
             // nada, pero otro proceso inserto el mismo valor justo antes de este INSERT.
             http_response_code(422);
             $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
         $this->syncManyToMany($id, $m2mSelections);
 
@@ -538,7 +558,7 @@ class AppyCrud
 
         if (!$this->verifyCsrf($post)) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
 
         $existingRow = $this->repository->find($id);
@@ -551,7 +571,7 @@ class AppyCrud
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors, $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
 
         if (($beforeUpdate = $this->hook('beforeUpdate')) !== null) {
@@ -560,7 +580,7 @@ class AppyCrud
                 $values = $pk !== null ? $post + [$pk->name => $id] : $post;
             } catch (HookAbortException $e) {
                 http_response_code(422);
-                return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), [], $this->csrfToken(), $e->getMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+                return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $e->getMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
             }
         }
 
@@ -569,7 +589,7 @@ class AppyCrud
         } catch (DuplicateValueException $e) {
             http_response_code(422);
             $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
         $this->syncManyToMany($id, $m2mSelections);
 
@@ -853,7 +873,7 @@ class AppyCrud
     private function handlePrint(mixed $id): never
     {
         $row = $this->repository->find($id) ?? [];
-        echo $this->renderer->renderPrintDocument($this->schema, $row, $this->referenceOptions());
+        echo $this->renderer->renderPrintDocument($this->schema, $row, $this->referenceOptions([$row]));
         exit;
     }
 

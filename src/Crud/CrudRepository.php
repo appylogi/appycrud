@@ -335,6 +335,29 @@ class CrudRepository
                 break;
             }
 
+            // Completa labels de valores que este bloque necesita y que quedaron
+            // fuera del cap de referenceOptions() (tablas de referencia grandes,
+            // ej. miles de ciudades) -- sin esto se veria el valor crudo guardado
+            // en vez del label en la exportacion.
+            foreach ($columns as $column) {
+                if ($column->reference === null) {
+                    continue;
+                }
+
+                $missing = array_filter(
+                    array_map(fn ($row) => $row[$column->name] ?? null, $rows),
+                    fn ($v) => $v !== null && $v !== '' && !array_key_exists((string) $v, $referenceLabels[$column->name] ?? [])
+                );
+
+                if ($missing === []) {
+                    continue;
+                }
+
+                foreach ($this->referenceOptions($column, mustIncludeValues: $missing) as $option) {
+                    $referenceLabels[$column->name][(string) $option['value']] = (string) $option['label'];
+                }
+            }
+
             foreach ($rows as $row) {
                 $displayRow = [];
                 foreach ($columns as $column) {
@@ -568,7 +591,18 @@ class CrudRepository
      * categorias activas").
      * @return array<int, array{value: mixed, label: string}>
      */
-    public function referenceOptions(Column $column, int $limit = 500): array
+    /**
+     * $mustIncludeValues: valores que estan realmente guardados en la(s) fila(s)
+     * que se van a mostrar (listado/vista/edicion) y por lo tanto su label debe
+     * resolver siempre, aunque la tabla referenciada tenga mas de $limit filas y
+     * el valor guardado no caiga entre las primeras $limit por orden alfabetico
+     * (ej. 'BOGOTA' en una tabla de 9000+ ciudades). Sin esto, el <select> del
+     * formulario sigue mostrando solo las primeras $limit (por diseño, es un
+     * limite de UX/performance), pero el LABEL de un valor ya guardado que quedo
+     * fuera de esas $limit se resolvia mal (se veia el valor crudo en vez del
+     * nombre) en listado/vista/impresion/exportacion.
+     */
+    public function referenceOptions(Column $column, int $limit = 500, array $mustIncludeValues = []): array
     {
         if ($column->reference === null) {
             return [];
@@ -593,8 +627,35 @@ class CrudRepository
         }
         $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
         $stmt->execute();
+        $rows = $stmt->fetchAll();
 
-        return $stmt->fetchAll();
+        $mustIncludeValues = array_values(array_unique(array_filter(
+            $mustIncludeValues,
+            fn ($v) => $v !== null && $v !== ''
+        )));
+        $known = array_map(fn ($r) => (string) $r['value'], $rows);
+        $missing = array_values(array_diff(array_map('strval', $mustIncludeValues), $known));
+
+        if ($missing !== []) {
+            $inPlaceholders = [];
+            $missingParams = $params;
+            foreach ($missing as $i => $value) {
+                $ph = ':mustinclude_' . $column->name . '_' . $i;
+                $inPlaceholders[] = $ph;
+                $missingParams[$ph] = $value;
+            }
+            $missingWhere = ($conditionSql === [] ? '' : implode(' AND ', $conditionSql) . ' AND ')
+                . "{$valueQ} IN (" . implode(', ', $inPlaceholders) . ')';
+            $sql2 = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} WHERE {$missingWhere}";
+            $stmt2 = $this->connection->pdo()->prepare($sql2);
+            foreach ($missingParams + $labelParams as $key => $value) {
+                $stmt2->bindValue($key, $value);
+            }
+            $stmt2->execute();
+            $rows = array_merge($rows, $stmt2->fetchAll());
+        }
+
+        return $rows;
     }
 
     /**
