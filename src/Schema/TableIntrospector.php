@@ -27,10 +27,19 @@ class TableIntrospector
             default => [],
         };
 
+        $uniqueColumns = match ($connection->driver()) {
+            'mysql' => $this->uniqueColumnsMysql($connection, $table),
+            'pgsql' => $this->uniqueColumnsPgsql($connection, $table),
+            'sqlite' => $this->uniqueColumnsSqlite($connection, $table),
+            default => [],
+        };
+
         $schema = new TableSchema($table);
 
         foreach ($rows as $row) {
             $enumOptions = $row['enumOptions'] ?? [];
+
+            $isUnique = !$row['isPrimaryKey'] && in_array($row['name'], $uniqueColumns, true);
 
             $column = new Column(
                 name: $row['name'],
@@ -43,6 +52,8 @@ class TableIntrospector
                 inputType: $enumOptions !== [] ? FieldType::DROPDOWN : null,
                 reference: $foreignKeys[$row['name']] ?? null,
                 options: $enumOptions,
+                unique: $isUnique,
+                uniqueInDb: $isUnique,
             );
 
             if ($config !== null) {
@@ -117,6 +128,84 @@ class TableIntrospector
         }
 
         return $foreignKeys;
+    }
+
+    /**
+     * Solo detecta indices UNIQUE de una sola columna (no compuestos): un
+     * unique compuesto (ej. UNIQUE(cliente_id, codigo)) no se puede validar
+     * de forma significativa columna por columna, asi que se ignora --
+     * seguira funcionando como restriccion real en la BD, solo no aparece
+     * reflejado como Column::$unique.
+     * @return string[] nombres de columna con UNIQUE de una sola columna
+     */
+    private function uniqueColumnsMysql(Connection $connection, string $table): array
+    {
+        $sql = 'SHOW INDEX FROM ' . $connection->quoteIdentifier($table) . " WHERE Non_unique = 0 AND Key_name != 'PRIMARY'";
+        $stmt = $connection->pdo()->query($sql);
+
+        return $this->singleColumnIndexNames($stmt->fetchAll(), 'Key_name', 'Column_name');
+    }
+
+    /** @return string[] */
+    private function uniqueColumnsPgsql(Connection $connection, string $table): array
+    {
+        $sql = "SELECT tc.constraint_name, kcu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'UNIQUE' AND tc.table_name = :table AND tc.table_schema = current_schema()";
+
+        $stmt = $connection->pdo()->prepare($sql);
+        $stmt->execute(['table' => $table]);
+
+        return $this->singleColumnIndexNames($stmt->fetchAll(), 'constraint_name', 'column_name');
+    }
+
+    /** @return string[] */
+    private function uniqueColumnsSqlite(Connection $connection, string $table): array
+    {
+        $quoted = $connection->quoteIdentifier($table);
+        $indexes = $connection->pdo()->query("PRAGMA index_list({$quoted})")->fetchAll();
+
+        $columns = [];
+        foreach ($indexes as $index) {
+            if ((int) $index['unique'] !== 1) {
+                continue;
+            }
+
+            $quotedIndex = $connection->quoteIdentifier($index['name']);
+            $info = $connection->pdo()->query("PRAGMA index_info({$quotedIndex})")->fetchAll();
+
+            if (count($info) === 1) {
+                $columns[] = $info[0]['name'];
+            }
+        }
+
+        return array_values(array_unique($columns));
+    }
+
+    /**
+     * Agrupa filas indice=>columna por nombre de indice/constraint y se
+     * queda solo con los que tienen exactamente una columna (unique simple,
+     * no compuesto).
+     * @param array<int, array<string, mixed>> $rows
+     * @return string[]
+     */
+    private function singleColumnIndexNames(array $rows, string $indexKey, string $columnKey): array
+    {
+        $byIndex = [];
+        foreach ($rows as $row) {
+            $byIndex[$row[$indexKey]][] = $row[$columnKey];
+        }
+
+        $columns = [];
+        foreach ($byIndex as $indexColumns) {
+            if (count($indexColumns) === 1) {
+                $columns[] = $indexColumns[0];
+            }
+        }
+
+        return array_values(array_unique($columns));
     }
 
     private function introspectMysql(Connection $connection, string $table): array

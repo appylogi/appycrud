@@ -56,6 +56,23 @@ Además de los overrides por columna, `TableConfig` acepta ajustes de paginació
 
 Si la validación falla, AppyCrud responde con HTTP 422 y re-renderiza el formulario con los errores — sin perder los datos ya escritos ni el modal abierto.
 
+### Valores únicos (`unique`)
+
+Si una columna tiene un índice `UNIQUE` de una sola columna en la base de datos, AppyCrud lo detecta solo (igual que ya hace con llaves foráneas y `ENUM`) y la marca como `Column::$unique = true` — no hace falta declararlo a mano. También se puede forzar vía `TableConfig`:
+
+```php
+$config = new TableConfig([
+    'nombre' => ['unique' => true],
+]);
+```
+
+Al crear o editar, AppyCrud verifica antes de guardar si ya existe otra fila con ese valor (ignorando la propia fila al editar) y, si la hay, responde con el mismo error 422 que las demás reglas — sin perder el modal ni lo ya escrito.
+
+**Importante — condición de carrera:** ese chequeo previo (`SELECT` antes del `INSERT`/`UPDATE`) no es atómico: si dos guardados llegan casi al mismo tiempo, ambos pueden pasar el chequeo antes de que cualquiera de los dos escriba. Por eso:
+
+- Si la columna tiene un `UNIQUE` **real en la base de datos** (`Column::$uniqueInDb === true`, que es el caso cuando se autodetectó), AppyCrud además captura el error que la propia base de datos lanza si dos guardados chocan (`DuplicateValueException`, SQLSTATE `23000`) y lo convierte en el mismo mensaje de validación — la protección real está en el índice de la base de datos, el chequeo previo solo mejora el mensaje y evita el viaje redondo en el caso común.
+- Si `'unique' => true` se forzó a mano en una columna que **no** tiene un índice `UNIQUE` real en la base de datos, la validación sigue funcionando (mejor esfuerzo), pero **sin** esa red de seguridad — dos guardados simultáneos sí podrían colarse ambos. Si necesitas la garantía real, agrega el índice `UNIQUE` en la base de datos (AppyCrud lo detecta solo, ni siquiera hace falta declarar el override).
+
 **Indicador visual de campo obligatorio:** cualquier columna no-nullable (`NOT NULL` en la base de datos, o forzado con `'nullable' => false` en el override) muestra un asterisco rojo (`*`) junto a su label en el formulario, además del atributo HTML `required`. No aplica a checkboxes (`boolean`): un booleano no-nullable casi siempre trae un default y no tiene el mismo sentido de "hay que llenarlo" que el resto de los tipos. Si el formulario tiene al menos un campo obligatorio, aparece una leyenda ("* obligatorio") arriba de los campos.
 
 ## Tipos de campo

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.4] - 2026-08-26
+
+### Agregado
+- Nueva propiedad `Column::$unique`: valida antes de guardar que no exista otra fila con el mismo valor (ignorando la propia fila al editar). Se autodetecta desde un índice `UNIQUE` de una sola columna en la base de datos (MySQL, Postgres y SQLite), igual que ya pasa con llaves foráneas y `ENUM` — o se puede forzar a mano vía `TableConfig` (`'unique' => true`). Si la columna tiene un `UNIQUE` real en la base de datos, además se captura el error que la propia base de datos lanza ante una condición de carrera (dos guardados casi simultáneos) y se convierte en el mismo mensaje de validación en vez de un error crudo — ver `Crud\DuplicateValueException` y [docs/uso.md](docs/uso.md#valores-únicos-unique).
+
 ## [0.1.3] - 2026-08-19
 
 ### Agregado

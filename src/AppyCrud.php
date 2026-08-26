@@ -6,6 +6,7 @@ use Appylogi\AppyCrud\Crud\Condition;
 use Appylogi\AppyCrud\Crud\Csrf;
 use Appylogi\AppyCrud\Crud\CrudRepository;
 use Appylogi\AppyCrud\Crud\DeleteMode;
+use Appylogi\AppyCrud\Crud\DuplicateValueException;
 use Appylogi\AppyCrud\Crud\HookAbortException;
 use Appylogi\AppyCrud\Crud\HtmlSanitizer;
 use Appylogi\AppyCrud\Crud\ManyToMany;
@@ -89,7 +90,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.3';
+    public const VERSION = '0.1.4';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -484,6 +485,7 @@ class AppyCrud
         $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields)));
         $post = $this->processFileUploads($files, $post, null);
         $errors = Validator::validate($this->schema, $post);
+        $errors = array_merge_recursive($errors, $this->checkUniqueColumns($post, null));
 
         if ($errors !== []) {
             http_response_code(422);
@@ -499,7 +501,15 @@ class AppyCrud
             }
         }
 
-        $id = $this->repository->insert($post);
+        try {
+            $id = $this->repository->insert($post);
+        } catch (DuplicateValueException $e) {
+            // Condicion de carrera: el chequeo previo (checkUniqueColumns) no encontro
+            // nada, pero otro proceso inserto el mismo valor justo antes de este INSERT.
+            http_response_code(422);
+            $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions(), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+        }
         $this->syncManyToMany($id, $m2mSelections);
 
         if (($afterInsert = $this->hook('afterInsert')) !== null) {
@@ -526,6 +536,7 @@ class AppyCrud
         $post = $this->processFileUploads($files, $post + $removeFileFlags, $existingRow);
         $values = $pk !== null ? $post + [$pk->name => $id] : $post;
         $errors = Validator::validate($this->schema, $post);
+        $errors = array_merge_recursive($errors, $this->checkUniqueColumns($post, $id));
 
         if ($errors !== []) {
             http_response_code(422);
@@ -542,7 +553,13 @@ class AppyCrud
             }
         }
 
-        $this->repository->update($id, $post);
+        try {
+            $this->repository->update($id, $post);
+        } catch (DuplicateValueException $e) {
+            http_response_code(422);
+            $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions(), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+        }
         $this->syncManyToMany($id, $m2mSelections);
 
         if (($afterUpdate = $this->hook('afterUpdate')) !== null) {
@@ -619,6 +636,37 @@ class AppyCrud
     private function csrfErrorMessage(): string
     {
         return $this->renderer->translate('form.csrf_error');
+    }
+
+    /**
+     * Chequeo previo (best-effort, no atomico) de las columnas marcadas
+     * Column::$unique. $excludeId es null en insert (nada que excluir) o el
+     * id de la fila en edicion (para no chocar contra si misma). No
+     * reemplaza la proteccion real: ver DuplicateValueException, la red de
+     * seguridad que atrapa el error real de la BD si dos guardados chocan
+     * entre este chequeo y el INSERT/UPDATE.
+     * @return array<string, string[]>
+     */
+    private function checkUniqueColumns(array $post, mixed $excludeId): array
+    {
+        $errors = [];
+
+        foreach ($this->schema->columns() as $column) {
+            if (!$column->unique) {
+                continue;
+            }
+
+            $value = $post[$column->name] ?? null;
+            if ($value === null || $value === '') {
+                continue;
+            }
+
+            if ($this->repository->columnValueExists($column->name, $value, $excludeId)) {
+                $errors[$column->name][] = "Ya existe un registro con ese {$column->label}.";
+            }
+        }
+
+        return $errors;
     }
 
     private function hook(string $name): ?callable

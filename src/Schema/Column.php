@@ -19,6 +19,17 @@ class Column
         public bool $hidden = false,
         public bool $readOnly = false,
         public ?string $inputType = null,
+        /**
+         * true si la columna debe validarse como unica antes de insertar/editar.
+         * Se autodetecta desde un indice UNIQUE de una sola columna en la base de
+         * datos (ver TableIntrospector); tambien se puede forzar via TableConfig
+         * (`'unique' => true`) para validarla a nivel de app aunque la BD no la
+         * tenga -- en ese caso no hay proteccion real contra condiciones de
+         * carrera, solo un chequeo de mejor esfuerzo (ver docs/uso.md).
+         */
+        public bool $unique = false,
+        /** true si $unique vino de un indice real en la BD (vs. forzada a mano via TableConfig). */
+        public bool $uniqueInDb = false,
         /** @var array{table: string, column: string, label?: string, conditions?: \Appylogi\AppyCrud\Crud\Condition[]}|null */
         public ?array $reference = null,
         /** @var string[] reglas de validacion tipo 'required', 'max:100', 'email', etc. */

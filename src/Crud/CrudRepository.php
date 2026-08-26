@@ -7,6 +7,7 @@ use Appylogi\AppyCrud\Schema\Column;
 use Appylogi\AppyCrud\Schema\FieldType;
 use Appylogi\AppyCrud\Schema\TableIntrospector;
 use Appylogi\AppyCrud\Schema\TableSchema;
+use PDOException;
 use RuntimeException;
 
 /**
@@ -445,7 +446,7 @@ class CrudRepository
         );
 
         $stmt = $this->connection->pdo()->prepare($sql);
-        $stmt->execute($data);
+        $this->executeCatchingDuplicate($stmt, $data);
 
         return $this->connection->lastInsertId();
     }
@@ -469,7 +470,68 @@ class CrudRepository
         $sql = sprintf('UPDATE %s SET %s WHERE %s', $table, implode(', ', $sets), $whereSql);
 
         $stmt = $this->connection->pdo()->prepare($sql);
-        $stmt->execute($data + ['__pk' => $primaryKeyValue] + $baseParams);
+        $this->executeCatchingDuplicate($stmt, $data + ['__pk' => $primaryKeyValue] + $baseParams);
+    }
+
+    /**
+     * Ejecuta el prepared statement; si la BD rechaza el INSERT/UPDATE por
+     * una restriccion UNIQUE real (SQLSTATE 23000), lo convierte en
+     * DuplicateValueException con el nombre de columna afectada cuando se
+     * puede identificar (buscando el nombre de columna en el mensaje del
+     * driver -- MySQL y Postgres lo incluyen). Es la red de seguridad final
+     * contra condiciones de carrera; ver columnValueExists() para el
+     * chequeo previo (mas rapido, mejor mensaje, pero no atomico).
+     */
+    private function executeCatchingDuplicate(\PDOStatement $stmt, array $params): void
+    {
+        try {
+            $stmt->execute($params);
+        } catch (PDOException $e) {
+            if ($e->getCode() !== '23000') {
+                throw $e;
+            }
+
+            $column = null;
+            foreach ($this->schema->columns() as $c) {
+                if ($c->unique && str_contains($e->getMessage(), $c->name)) {
+                    $column = $c;
+                    break;
+                }
+            }
+
+            $label = $column?->label ?? 'valor';
+            throw new DuplicateValueException(
+                $column?->name ?? '',
+                "Ya existe un registro con ese {$label}.",
+            );
+        }
+    }
+
+    /**
+     * Chequeo previo (best-effort, no atomico) de si ya existe otra fila con
+     * ese valor para una columna marcada Column::$unique. $excludeId permite
+     * ignorar la propia fila al editar. Respeta las condiciones base
+     * (scoping): un valor duplicado fuera del scope del integrador no cuenta.
+     */
+    public function columnValueExists(string $column, mixed $value, mixed $excludeId = null): bool
+    {
+        $quotedTable = $this->connection->quoteIdentifier($this->schema->table);
+        $quotedColumn = $this->connection->quoteIdentifier($column);
+        [$baseSql, $baseParams] = $this->baseConditionsSql();
+        $conditions = array_merge(["{$quotedColumn} = :value"], $baseSql);
+        $params = ['value' => $value] + $baseParams;
+
+        $pk = $this->schema->primaryKey();
+        if ($pk !== null && $excludeId !== null) {
+            $conditions[] = $this->connection->quoteIdentifier($pk->name) . ' <> :__excludeId';
+            $params['__excludeId'] = $excludeId;
+        }
+
+        $whereSql = implode(' AND ', $conditions);
+        $stmt = $this->connection->pdo()->prepare("SELECT 1 FROM {$quotedTable} WHERE {$whereSql} LIMIT 1");
+        $stmt->execute($params);
+
+        return $stmt->fetch() !== false;
     }
 
     public function delete(mixed $primaryKeyValue): void
