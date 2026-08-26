@@ -51,6 +51,8 @@ class TailwindRenderer
         array $advancedFilters = [],
         array $perPageOptions = [10, 20, 50, 100],
         ?array $updateInfo = null,
+        ?string $title = null,
+        ?string $subtitle = null,
     ): string {
         $t = $this->translator;
         $filtersEnabled = $features['filters'] ?? true;
@@ -73,11 +75,19 @@ class TailwindRenderer
 
         $body = $this->renderListInner($schema, $pagination, $baseUrl, $deleteMode, $referenceOptions, $features, $activeFilters, $search, $orderBy, $orderDir, $csrfToken, $rowActions, $uploadUrlPrefix, $advancedFilters, $filterableFields, $perPageOptions);
 
+        $titleText = $title ?? $t->t('list.title', ['table' => $schema->table]);
+        $subtitleHtml = $subtitle !== null && $subtitle !== ''
+            ? '<p class="text-sm text-gray-500 mt-0.5">' . $this->e($subtitle) . '</p>'
+            : '';
+
         return <<<HTML
         <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
             {$updateBanner}
             <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-                <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('list.title', ['table' => $schema->table]))}</h1>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-900">{$this->e($titleText)}</h1>
+                    {$subtitleHtml}
+                </div>
                 <div class="flex items-center gap-2 print:hidden">{$toolbar}</div>
             </div>
             {$searchAndFilters}

@@ -90,7 +90,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.4';
+    public const VERSION = '0.1.5';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -121,7 +121,7 @@ class AppyCrud
     public function __construct(
         private Connection $connection,
         private string $table,
-        ?TableConfig $config = null,
+        private ?TableConfig $config = null,
         string $locale = 'es',
         array $options = [],
     ) {
@@ -370,7 +370,7 @@ class AppyCrud
     {
         [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters] = $this->paginateFromRequest($get);
 
-        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions, $this->availableUpdate());
+        return $this->renderer->renderList($this->schema, $pagination, $baseUrl, $this->deleteMode, $this->referenceOptions(), $this->features, $filters, $search, $orderBy, $orderDir, $this->csrfToken(), $this->rowActionsForRender(), $this->uploadUrlPrefix, $this->filterableFields, $advancedFilters, $this->perPageOptions, $this->availableUpdate(), $this->config?->title(), $this->config?->subtitle());
     }
 
     /** Solo se consulta si 'checkForUpdates' esta activo; nunca lanza excepciones. */

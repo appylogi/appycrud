@@ -28,6 +28,13 @@ namespace Appylogi\AppyCrud\Schema;
  *       perPage: 50,
  *       perPageOptions: [25, 50, 100],
  *   );
+ *
+ * Tambien acepta un titulo/subtitulo propios para el listado (equivalente al
+ * setSubject($title, $subtitle) de GroceryCrud) -- si no se pasan, AppyCrud
+ * usa el texto por defecto "Listado de :table" segun el idioma activo.
+ *
+ * Ejemplo:
+ *   new TableConfig(title: 'Bancos', subtitle: 'Listado de Bancos');
  */
 class TableConfig
 {
@@ -35,6 +42,8 @@ class TableConfig
         private array $columnOverrides = [],
         private ?int $perPage = null,
         private ?array $perPageOptions = null,
+        private ?string $title = null,
+        private ?string $subtitle = null,
     ) {
     }
 
@@ -81,5 +90,17 @@ class TableConfig
     public function perPageOptions(): ?array
     {
         return $this->perPageOptions;
+    }
+
+    /** null si esta tabla no fijo un titulo propio — AppyCrud cae al default "Listado de :table". */
+    public function title(): ?string
+    {
+        return $this->title;
+    }
+
+    /** null si esta tabla no fijo un subtitulo — no se muestra nada debajo del titulo. */
+    public function subtitle(): ?string
+    {
+        return $this->subtitle;
     }
 }

@@ -44,6 +44,26 @@ Cualquier propiedad pública de `Column` se puede sobreescribir así (`label`, `
 
 Además de los overrides por columna, `TableConfig` acepta ajustes de paginación propios de esa tabla (`perPage`, `perPageOptions`, segundo y tercer argumento) — ver [Paginación](#paginación-cuántos-registros-mostrar).
 
+### Título y subtítulo del listado (`title`, `subtitle`)
+
+Por defecto el encabezado del listado muestra `"Listado de :table"` (traducido según el idioma activo). Para personalizarlo — equivalente al `$this->crud->setSubject($title, $subtitle)` de GroceryCrud — se pasan `title`/`subtitle` a `TableConfig`:
+
+```php
+$config = new TableConfig(
+    columnOverrides: [
+        'nombre' => ['label' => 'Nombre', 'rules' => ['required', 'max:100']],
+    ],
+    title: 'Bancos',
+    subtitle: 'Listado de Bancos',
+);
+
+$crud = new AppyCrud($connection, 'tblbancos', $config);
+```
+
+- `title` reemplaza el `<h1>` del listado. Si no se define, se usa el default traducido.
+- `subtitle` es opcional; si se define, se muestra debajo del título en texto más pequeño. Si no se define, no se muestra nada.
+- No aplica al formulario de creación/edición ni a la vista de detalle — solo al encabezado del listado.
+
 ### Reglas de validación disponibles
 
 | Regla | Efecto |

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.5] - 2026-08-26
+
+### Agregado
+- `TableConfig` acepta `title`/`subtitle` para personalizar el encabezado del listado (equivalente a `setSubject()` en GroceryCrud), en vez del texto por defecto `"Listado de :table"`. Ver [docs/uso.md](docs/uso.md#título-y-subtítulo-del-listado-title-subtitle).
+
 ## [0.1.4] - 2026-08-26
 
 ### Agregado
