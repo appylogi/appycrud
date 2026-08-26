@@ -698,16 +698,24 @@ class CrudRepository
      * (todas las filas de la tabla relacionada, no solo las ya asociadas).
      * @return array<int, array{value: mixed, label: string}>
      */
+    /**
+     * $relation->labelColumn acepta el mismo formato que reference.label: un
+     * nombre de columna simple, o una plantilla tipo GroceryCrud
+     * ("{pkid} - {nit} {nombre}") combinando varias columnas.
+     */
     public function manyToManyOptions(ManyToMany $relation, int $limit = 500): array
     {
         $labelColumn = $relation->labelColumn ?? $this->guessLabelColumn($relation->relatedTable, $relation->relatedKey);
 
         $tableQ = $this->connection->quoteIdentifier($relation->relatedTable);
         $keyQ = $this->connection->quoteIdentifier($relation->relatedKey);
-        $labelQ = $this->connection->quoteIdentifier($labelColumn);
+        [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, 'm2m_' . $relation->name . '_lbl');
 
-        $sql = "SELECT {$keyQ} AS value, {$labelQ} AS label FROM {$tableQ} ORDER BY {$labelQ} LIMIT :limit";
+        $sql = "SELECT {$keyQ} AS value, {$labelExpr} AS label FROM {$tableQ} ORDER BY label LIMIT :limit";
         $stmt = $this->connection->pdo()->prepare($sql);
+        foreach ($labelParams as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
         $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
         $stmt->execute();
 

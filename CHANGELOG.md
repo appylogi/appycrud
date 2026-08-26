@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.11] - 2026-08-26
+
+### Agregado
+- `ManyToMany::$labelColumn` acepta el mismo formato que `reference.label`: una plantilla combinando varias columnas (`'{pkid} - {nit} {nombre}'`), no solo el nombre de una columna. Ver [docs/uso.md](docs/uso.md#muchos-a-muchos).
+
 ## [0.1.10] - 2026-08-26
 
 ### Corregido
