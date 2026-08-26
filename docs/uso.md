@@ -226,6 +226,18 @@ use Appylogi\AppyCrud\Crud\Condition;
 
 Esto afecta solo las opciones que se muestran en el `<select>` — no cambia lo que se ve en el listado si una categoría deja de estar activa después de asignada a una tarea existente (el label ya guardado se sigue resolviendo igual).
 
+### Label compuesto (varias columnas)
+
+Si el texto a mostrar necesita combinar varias columnas de la tabla referenciada (ej. "123 - ACME (NIT 900123)"), `label` acepta una plantilla con `{columna}` en vez de un solo nombre de columna — equivalente al `{campo}` de GroceryCrud:
+
+```php
+'cliente' => ['reference' => [
+    'table' => 'clientes', 'column' => 'pkid', 'label' => '{pkid} - {nombre} ({nit})',
+]],
+```
+
+Cada `{columna}` se resuelve como columna real (identificador, no valor) y los fragmentos de texto literal viajan parametrizados — no se concatenan a mano en el SQL. Funciona en MySQL/PostgreSQL (`CONCAT`) y SQLite (`||`).
+
 ## Muchos a muchos
 
 Para relaciones muchos-a-muchos vía tabla pivote (ej. una tarea puede tener varios colaboradores, y un colaborador puede estar en varias tareas), usa `Crud\ManyToMany` en la opción `manyToMany`:

@@ -574,20 +574,55 @@ class CrudRepository
 
         $tableQ = $this->connection->quoteIdentifier($refTable);
         $valueQ = $this->connection->quoteIdentifier($valueColumn);
-        $labelQ = $this->connection->quoteIdentifier($labelColumn);
+        [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, 'refcond_' . $column->name . '_lbl');
 
         [$conditionSql, $params] = $this->conditionsToSql($conditions, 'refcond_' . $column->name);
         $whereSql = $conditionSql === [] ? '' : 'WHERE ' . implode(' AND ', $conditionSql);
 
-        $sql = "SELECT {$valueQ} AS value, {$labelQ} AS label FROM {$tableQ} {$whereSql} ORDER BY {$labelQ} LIMIT :limit";
+        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} ORDER BY label LIMIT :limit";
         $stmt = $this->connection->pdo()->prepare($sql);
-        foreach ($params as $key => $value) {
+        foreach ($params + $labelParams as $key => $value) {
             $stmt->bindValue($key, $value);
         }
         $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Traduce un nombre de columna simple, o una plantilla tipo GroceryCrud
+     * ("{pkid} - {nombre} ({nit})"), a una expresion SQL con sus parametros.
+     * Los fragmentos literales de la plantilla viajan parametrizados (no
+     * concatenados a mano) para no depender del escapado de comillas del motor.
+     * @return array{0: string, 1: array<string, string>}
+     */
+    private function labelExpression(string $labelColumn, string $paramPrefix): array
+    {
+        if (!str_contains($labelColumn, '{')) {
+            return [$this->connection->quoteIdentifier($labelColumn), []];
+        }
+
+        $tokens = preg_split('/(\{[a-zA-Z0-9_]+\})/', $labelColumn, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+        $parts = [];
+        $params = [];
+        $i = 0;
+
+        foreach ($tokens as $token) {
+            if (preg_match('/^\{([a-zA-Z0-9_]+)\}$/', $token, $m)) {
+                $parts[] = $this->connection->quoteIdentifier($m[1]);
+            } else {
+                $placeholder = ':' . $paramPrefix . '_' . $i++;
+                $parts[] = $placeholder;
+                $params[$placeholder] = $token;
+            }
+        }
+
+        $expr = $this->connection->driver() === 'sqlite'
+            ? implode(' || ', $parts)
+            : 'CONCAT(' . implode(', ', $parts) . ')';
+
+        return [$expr, $params];
     }
 
     /**

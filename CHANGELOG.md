@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.8] - 2026-08-26
+
+### Agregado
+- `reference.label` acepta una plantilla con varias columnas (`'{pkid} - {nombre} ({nit})'`), equivalente al `{campo}` de GroceryCrud — antes solo aceptaba el nombre de una sola columna. Se resuelve con `CONCAT` (MySQL/PostgreSQL) o `||` (SQLite); los fragmentos literales viajan parametrizados. Ver [docs/uso.md](docs/uso.md#label-compuesto-varias-columnas).
+
 ## [0.1.7] - 2026-08-26
 
 ### Agregado
