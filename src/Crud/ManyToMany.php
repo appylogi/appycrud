@@ -22,6 +22,7 @@ use Appylogi\AppyCrud\Schema\FieldType;
  */
 class ManyToMany
 {
+    /** @param Condition[] $conditions */
     public function __construct(
         public string $name,
         public string $pivotTable,
@@ -32,6 +33,7 @@ class ManyToMany
         public ?string $labelColumn = null,
         public string $label = '',
         public string $inputType = FieldType::MULTISELECT_NATIVE,
+        public array $conditions = [],
     ) {
         if ($this->label === '') {
             $this->label = ucwords(str_replace(['_', '-'], ' ', $name));

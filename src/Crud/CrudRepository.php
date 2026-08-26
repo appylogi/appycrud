@@ -710,10 +710,12 @@ class CrudRepository
         $tableQ = $this->connection->quoteIdentifier($relation->relatedTable);
         $keyQ = $this->connection->quoteIdentifier($relation->relatedKey);
         [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, 'm2m_' . $relation->name . '_lbl');
+        [$conditionSql, $conditionParams] = $this->conditionsToSql($relation->conditions, 'm2m_' . $relation->name . '_cond');
+        $whereSql = $conditionSql === [] ? '' : 'WHERE ' . implode(' AND ', $conditionSql);
 
-        $sql = "SELECT {$keyQ} AS value, {$labelExpr} AS label FROM {$tableQ} ORDER BY label LIMIT :limit";
+        $sql = "SELECT {$keyQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} ORDER BY label LIMIT :limit";
         $stmt = $this->connection->pdo()->prepare($sql);
-        foreach ($labelParams as $key => $value) {
+        foreach ($labelParams + $conditionParams as $key => $value) {
             $stmt->bindValue($key, $value);
         }
         $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);

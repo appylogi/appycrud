@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.12] - 2026-08-26
+
+### Agregado
+- `ManyToMany::$conditions` (Condition[]) filtra las opciones del multiselect a un subconjunto de la tabla relacionada (ej. "solo operadores activos"), igual que `reference.conditions`.
+
 ## [0.1.11] - 2026-08-26
 
 ### Agregado
