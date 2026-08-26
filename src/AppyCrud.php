@@ -90,7 +90,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.6';
+    public const VERSION = '0.1.7';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -144,6 +144,8 @@ class AppyCrud
 
         $this->features = [
             'export' => $options['export'] ?? true,
+            'create' => $options['create'] ?? true,
+            'edit' => $options['edit'] ?? true,
             'delete' => $options['delete'] ?? true,
             'bulkDelete' => $options['bulkDelete'] ?? true,
             'filters' => $options['filters'] ?? true,
@@ -233,6 +235,14 @@ class AppyCrud
     public function handle(string $baseUrl, array $get, array $post, bool $isAjax = false, array $files = []): string
     {
         $action = $get['action'] ?? 'list';
+
+        if (in_array($action, ['create', 'store'], true) && !($this->features['create'] ?? true)) {
+            $this->redirect($baseUrl);
+        }
+
+        if (in_array($action, ['edit', 'update'], true) && !($this->features['edit'] ?? true)) {
+            $this->redirect($baseUrl);
+        }
 
         foreach ($this->rowActions as $rowAction) {
             if ($rowAction->name === $action) {

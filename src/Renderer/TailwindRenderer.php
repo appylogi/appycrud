@@ -65,7 +65,9 @@ class TailwindRenderer
             ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled, $filterableFields, $advancedFilters, $referenceOptions)
             : '';
 
-        $toolbar = '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>';
+        $toolbar = ($features['create'] ?? true)
+            ? '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>'
+            : '';
 
         if ($features['export'] ?? true) {
             $toolbar .= $this->renderExportMenu($baseUrl, $activeFilters, $search, $advancedFilters);
@@ -158,6 +160,7 @@ class TailwindRenderer
         $pk = $schema->primaryKey();
 
         $deleteEnabled = $features['delete'] ?? true;
+        $editEnabled = $features['edit'] ?? true;
         $bulkDeleteEnabled = ($features['bulkDelete'] ?? true) && $deleteEnabled && $pk !== null;
         $viewEnabled = $features['view'] ?? true;
         $cloneEnabled = $features['clone'] ?? true;
@@ -206,7 +209,7 @@ class TailwindRenderer
                 $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $cellContent . '</td>';
             }
 
-            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions, $deleteEnabled) . '</td>';
+            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions, $deleteEnabled, $editEnabled) . '</td>';
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
         }
@@ -432,7 +435,7 @@ class TailwindRenderer
     }
 
     /** @param array<int, array{name: string, label: string, icon: ?string, confirm: ?string, method: string, openInModal: bool}> $rowActions */
-    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = '', array $rowActions = [], bool $deleteEnabled = true): string
+    private function renderRowActions(string $baseUrl, mixed $pkValue, string $deleteMode, bool $viewEnabled, bool $cloneEnabled, Translator $t, string $csrfToken = '', array $rowActions = [], bool $deleteEnabled = true, bool $editEnabled = true): string
     {
         $editUrl = $this->e($baseUrl) . '?action=edit&id=' . $this->e((string) $pkValue) . '&ajax=1';
         $viewUrl = $this->e($baseUrl) . '?action=view&id=' . $this->e((string) $pkValue) . '&ajax=1';
@@ -452,12 +455,12 @@ class TailwindRenderer
         $extraCount = ($viewEnabled ? 1 : 0) + ($cloneEnabled ? 1 : 0) + ($deleteEnabled ? 1 : 0) + count($rowActions);
 
         if ($extraCount <= 1) {
-            $inline = sprintf($editButton, 'inline-flex items-center gap-1', '');
+            $inline = $editEnabled ? sprintf($editButton, 'inline-flex items-center gap-1', '') : '';
             if ($deleteEnabled) {
                 $inline .= sprintf($deleteForm, '<button type="submit" class="inline-flex items-center gap-1 text-red-600 hover:text-red-800">' . $this->icon('trash') . '<span>' . $this->e($t->t('list.delete')) . '</span></button>');
             }
 
-            return '<span class="inline-flex items-center gap-3">' . $inline . '</span>';
+            return $inline === '' ? '' : '<span class="inline-flex items-center gap-3">' . $inline . '</span>';
         }
 
         $menuItems = '';
@@ -475,7 +478,7 @@ class TailwindRenderer
         }
 
         return '<span class="inline-flex items-center gap-3">'
-            . sprintf($editButton, 'inline-flex items-center gap-1', '')
+            . ($editEnabled ? sprintf($editButton, 'inline-flex items-center gap-1', '') : '')
             . '<span class="relative inline-block appycrud-menu-wrap">'
             . '<button type="button" onclick="appycrudToggleMenu(this)" aria-label="' . $this->e($t->t('list.more_actions')) . '" class="text-gray-500 hover:text-gray-800 p-1 rounded hover:bg-gray-100">' . $this->icon('dots') . '</button>'
             . '<div class="hidden appycrud-menu w-40 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">' . $menuItems . '</div>'

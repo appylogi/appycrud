@@ -344,6 +344,8 @@ El cuarto argumento es el idioma (`'es'`/`'en'`, ver [i18n](#i18n)); el quinto e
 
 ```php
 $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'create' => true,
+    'edit' => true,
     'delete' => true,
     'deleteMode' => DeleteMode::SOFT,
     'softDeleteColumn' => 'eliminado',
@@ -363,6 +365,8 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 
 | Opción | Default | Descripción |
 |---|---|---|
+| `create` | `true` | Si es `false`, quita el botón "Nuevo" de la UI y rechaza `action=create`/`action=store` en el servidor. Equivalente a `unsetAdd()` en GroceryCrud. |
+| `edit` | `true` | Si es `false`, quita el botón/acción Editar de la UI y rechaza `action=edit`/`action=update` en el servidor. Equivalente a `unsetEdit()` en GroceryCrud. |
 | `delete` | `true` | Si es `false`, quita el botón/acción Eliminar (individual y masivo) de la UI y **también** rechaza `action=delete`/`action=bulkDelete` en el servidor (no es solo cosmético). Para tablas donde borrar no debe ser posible — equivalente a `unsetDelete()` en GroceryCrud. |
 | `deleteMode` | `DeleteMode::CONFIRM` | `CONFIRM` pregunta con un modal propio; `DIRECT` borra sin preguntar; `SOFT` no borra, actualiza `softDeleteColumn`. Sin efecto si `delete` es `false`. |
 | `softDeleteColumn` | `null` | Obligatorio si `deleteMode` es `SOFT`. Debe ser una columna existente. |
