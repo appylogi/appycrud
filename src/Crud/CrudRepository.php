@@ -683,13 +683,22 @@ class CrudRepository
         [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, 'refsearch_' . $column->name . '_lbl');
 
         [$conditionSql, $params] = $this->conditionsToSql($conditions, 'refsearch_' . $column->name);
-        if (trim($query) !== '') {
-            $conditionSql[] = "({$labelExpr}) LIKE :refsearch_term";
-            $params[':refsearch_term'] = '%' . $query . '%';
-        }
         $whereSql = $conditionSql === [] ? '' : 'WHERE ' . implode(' AND ', $conditionSql);
 
-        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} ORDER BY label LIMIT :limit";
+        // El termino de busqueda filtra por el alias "label" via HAVING, no
+        // repitiendo $labelExpr en un WHERE -- con EMULATE_PREPARES=false
+        // (ver Connection), un mismo parametro nombrado no puede aparecer
+        // dos veces en la misma consulta, y $labelExpr puede traer sus
+        // propios parametros (labels compuestos tipo '{nombre}-{depto}').
+        // HAVING puede referenciar un alias del SELECT sin necesidad de
+        // GROUP BY.
+        $havingSql = '';
+        if (trim($query) !== '') {
+            $havingSql = 'HAVING label LIKE :refsearch_term';
+            $params[':refsearch_term'] = '%' . $query . '%';
+        }
+
+        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} {$havingSql} ORDER BY label LIMIT :limit";
         $stmt = $this->connection->pdo()->prepare($sql);
         foreach ($params + $labelParams as $key => $value) {
             $stmt->bindValue($key, $value);
