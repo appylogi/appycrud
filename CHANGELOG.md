@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.24] - 2026-08-27
+
+### Agregado
+- `TableConfig(columnOrder: [...])`: fuerza un orden explicito de columnas en listado y formulario (equivalente a `->columns([...])` de GroceryCrud). Sin esto, las columnas siempre se muestran en el orden fisico de la tabla en BD -- que no siempre coincide con el orden logico que tenia la app original, sobre todo en tablas legacy donde una columna se agrego despues del diseño original y quedo al final fisicamente aunque conceptualmente vaya al principio. Las columnas no listadas en `columnOrder` conservan su posicion relativa original y quedan al final (no hace falta listarlas todas). Ver `docs/uso.md`.
+
 ## [0.1.23] - 2026-08-27
 
 ### Corregido

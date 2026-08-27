@@ -35,6 +35,17 @@ namespace Appylogi\AppyCrud\Schema;
  *
  * Ejemplo:
  *   new TableConfig(title: 'Bancos', subtitle: 'Listado de Bancos');
+ *
+ * Por defecto las columnas se muestran en el orden fisico de la tabla en
+ * BD (el que devuelve la introspeccion) -- no siempre coincide con el
+ * orden logico que tenia la app original (ej. GroceryCrud con
+ * ->columns([...])). `columnOrder` fuerza un orden explicito: las
+ * columnas listadas van primero en ese orden, cualquier columna de la
+ * tabla que no se mencione conserva su posicion relativa original y
+ * queda al final (no hace falta listarlas todas).
+ *
+ * Ejemplo:
+ *   new TableConfig(columnOrder: ['cliente', 'tarifa', 'fecha_inicial']);
  */
 class TableConfig
 {
@@ -44,6 +55,7 @@ class TableConfig
         private ?array $perPageOptions = null,
         private ?string $title = null,
         private ?string $subtitle = null,
+        private ?array $columnOrder = null,
     ) {
     }
 
@@ -102,5 +114,11 @@ class TableConfig
     public function subtitle(): ?string
     {
         return $this->subtitle;
+    }
+
+    /** null si esta tabla no fijo un orden propio — AppyCrud usa el orden fisico de la BD. */
+    public function columnOrder(): ?array
+    {
+        return $this->columnOrder;
     }
 }

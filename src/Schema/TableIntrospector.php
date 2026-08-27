@@ -63,6 +63,10 @@ class TableIntrospector
             $schema->addColumn($column);
         }
 
+        if ($config !== null && $config->columnOrder() !== null) {
+            $schema->reorder($config->columnOrder());
+        }
+
         return $schema;
     }
 

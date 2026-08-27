@@ -99,14 +99,30 @@ Al crear o editar, AppyCrud verifica antes de guardar si ya existe otra fila con
 
 `required` (y el asterisco) reflejan **solo** lo que se marca a mano en `rules`, nunca la nulabilidad real de la columna en la base de datos (hasta la v0.1.17 si lo hacían, ver [CHANGELOG](../CHANGELOG.md#0118---2026-08-27) — esto es un cambio de comportamiento). Una tabla legacy suele tener columnas `NOT NULL` que en realidad nunca fueron pensadas como obligatorias en el formulario (defaults de `''`/`0` puestos al crear la tabla), y forzar `required` automáticamente en todas esas columnas termina bloqueando al usuario con campos que el negocio nunca pidió llenar.
 
-Si una columna es `NOT NULL` **sin** default en la base de datos y no la marcás `required`, dejarla vacía al guardar ya no falla con un mensaje de validación claro — falla con el error crudo que lance la base de datos al hacer el `INSERT`/`UPDATE`. Para cada columna así, elegí una de las dos:
+Si una columna es `NOT NULL` **sin** default en la base de datos y no la marcás `required`, dejarla vacía al guardar ya no rompe el `INSERT`/`UPDATE` (desde la v0.1.19+, ver [CHANGELOG](../CHANGELOG.md)): AppyCrud manda un valor neutro según el tipo (`0` para columnas numéricas) en vez de mandar `''` o de omitir la columna — el mismo resultado que un formulario clásico (ej. GroceryCrud) siempre produjo, sin necesitar ninguna migración de esquema. Para cada columna así, de todas formas conviene elegir explícitamente:
 
 ```php
-// Opción A: sí es obligatoria de verdad -> declaralo
+// Opción A: sí es obligatoria de verdad -> declaralo (da un mensaje de
+// validación claro en vez de guardar un 0/vacío silencioso)
 'campo' => ['rules' => ['required']],
 
-// Opción B: no es obligatoria -> dale un default en la base de datos
+// Opción B: no es obligatoria -> no hace falta nada mas, AppyCrud ya
+// maneja el guardado en blanco de forma segura. Si preferís que la BD
+// aplique su propio default en vez de 0, dale uno en el esquema:
 // ALTER TABLE tabla ALTER COLUMN campo SET DEFAULT '';
+```
+
+## Orden de columnas (`columnOrder`)
+
+Por defecto las columnas se muestran en el orden físico de la tabla en la base de datos (el que devuelve la introspección) — no siempre coincide con el orden lógico que tenía la app original, sobre todo en tablas legacy donde una columna se agregó después del diseño inicial y quedó al final físicamente aunque conceptualmente vaya al principio (ej. una migración desde GroceryCrud que usaba `->columns([...])` para fijar un orden propio).
+
+`columnOrder` fuerza un orden explícito: las columnas listadas van primero en ese orden; cualquier columna de la tabla que no se mencione conserva su posición relativa original y queda al final (no hace falta listarlas todas).
+
+```php
+new TableConfig(
+    columnOverrides: [...],
+    columnOrder: ['cliente', 'tarifa', 'fecha_inicial', 'fecha_final'],
+);
 ```
 
 ## Tipos de campo
