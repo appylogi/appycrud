@@ -659,6 +659,48 @@ class CrudRepository
     }
 
     /**
+     * Busca opciones de una referencia por texto libre (label LIKE %q%),
+     * para el combobox buscable con backend real (select2-style): a
+     * diferencia de referenceOptions(), no depende de precargar/cachear un
+     * top-N de la tabla completa -- funciona igual de bien con 50 filas que
+     * con 500 mil, porque el filtrado ocurre en el motor de base de datos,
+     * no en el navegador.
+     * @return array<int, array{value: mixed, label: string}>
+     */
+    public function searchReferenceOptions(Column $column, string $query, int $limit = 20): array
+    {
+        if ($column->reference === null) {
+            return [];
+        }
+
+        $refTable = $column->reference['table'];
+        $valueColumn = $column->reference['column'];
+        $labelColumn = $column->reference['label'] ?? $this->guessLabelColumn($refTable, $valueColumn);
+        $conditions = $column->reference['conditions'] ?? [];
+
+        $tableQ = $this->connection->quoteIdentifier($refTable);
+        $valueQ = $this->connection->quoteIdentifier($valueColumn);
+        [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, 'refsearch_' . $column->name . '_lbl');
+
+        [$conditionSql, $params] = $this->conditionsToSql($conditions, 'refsearch_' . $column->name);
+        if (trim($query) !== '') {
+            $conditionSql[] = "({$labelExpr}) LIKE :refsearch_term";
+            $params[':refsearch_term'] = '%' . $query . '%';
+        }
+        $whereSql = $conditionSql === [] ? '' : 'WHERE ' . implode(' AND ', $conditionSql);
+
+        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} ORDER BY label LIMIT :limit";
+        $stmt = $this->connection->pdo()->prepare($sql);
+        foreach ($params + $labelParams as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Traduce un nombre de columna simple, o una plantilla tipo GroceryCrud
      * ("{pkid} - {nombre} ({nit})"), a una expresion SQL con sus parametros.
      * Los fragmentos literales de la plantilla viajan parametrizados (no

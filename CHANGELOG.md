@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.14] - 2026-08-27
+
+### Corregido
+- El combobox buscable de una referencia (`dropdown_search`/auto-promovido desde 0.1.13) solo filtraba entre un top-500 de opciones precargadas en un `<datalist>` — con una tabla referenciada grande (miles de filas), buscar un valor que cayera fuera de ese top-500 alfabetico (ej. "Medellin" entre miles de ciudades) no encontraba nada. Ahora, cuando el campo es una referencia (llave foranea), el combobox busca en tiempo real contra la base de datos (`AppyCrud::handleReferenceSearch`, nuevo endpoint `action=reference_search`, con debounce de 250ms) en vez de filtrar en el navegador — funciona sin importar el tamano de la tabla referenciada. Los `dropdown`/`enum` con `options` estaticas (no referencia) siguen usando el `<datalist>` de siempre, que no tiene ese problema.
+
 ## [0.1.13] - 2026-08-27
 
 ### Agregado

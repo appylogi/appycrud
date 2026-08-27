@@ -788,6 +788,7 @@ class TailwindRenderer
         $cancelLabel = $this->e($this->translator->t('form.cancel'));
         $defaultAcceptLabel = $this->e($this->translator->t('confirm.accept'));
         $csrfTokenJs = $this->jsString($csrfToken);
+        $refSearchNoResultsJs = $this->jsString($this->translator->t('list.search_no_results'));
 
         return <<<HTML
         <style>
@@ -938,6 +939,59 @@ class TailwindRenderer
 
             chip.remove();
         }
+
+        // --- Combobox buscable con backend real (referencias grandes) ---
+
+        var appycrudRefSearchNoResults = {$refSearchNoResultsJs};
+        var appycrudRefSearchTimer = null;
+
+        function appycrudRefSearchInput(input) {
+            var wrap = input.closest('.appycrud-ref-search');
+            var dropdown = wrap.querySelector('.appycrud-ref-search-dropdown');
+            var term = input.value;
+
+            if (term === '') {
+                wrap.querySelector('input[type="hidden"]').value = '';
+            }
+
+            document.querySelectorAll('.appycrud-ref-search-dropdown').forEach(function (d) {
+                if (d !== dropdown) { d.classList.add('hidden'); }
+            });
+
+            clearTimeout(appycrudRefSearchTimer);
+            appycrudRefSearchTimer = setTimeout(function () {
+                fetch(wrap.dataset.url + encodeURIComponent(term))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        dropdown.innerHTML = '';
+                        var options = data.options || [];
+                        if (options.length === 0) {
+                            dropdown.innerHTML = '<div class="px-3 py-1.5 text-sm text-gray-400">' + appycrudRefSearchNoResults + '</div>';
+                        }
+                        options.forEach(function (opt) {
+                            var btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'appycrud-ref-search-option w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50';
+                            btn.textContent = opt.label;
+                            btn.dataset.value = opt.value;
+                            btn.dataset.label = opt.label;
+                            btn.onclick = function () { appycrudRefSearchSelect(btn); };
+                            dropdown.appendChild(btn);
+                        });
+                        dropdown.classList.remove('hidden');
+                    });
+            }, 250);
+        }
+
+        function appycrudRefSearchSelect(optionButton) {
+            var wrap = optionButton.closest('.appycrud-ref-search');
+            var input = wrap.querySelector('.appycrud-ref-search-input');
+            var hidden = wrap.querySelector('input[type="hidden"]');
+            input.value = optionButton.dataset.label;
+            hidden.value = optionButton.dataset.value;
+            wrap.querySelector('.appycrud-ref-search-dropdown').classList.add('hidden');
+        }
+
         function appycrudSubmitForm(event, form) {
             event.preventDefault();
             fetch(form.getAttribute('action'), {
@@ -1126,6 +1180,9 @@ class TailwindRenderer
             if (!e.target.closest('.appycrud-select2')) {
                 document.querySelectorAll('.appycrud-select2-dropdown').forEach(function (d) { d.classList.add('hidden'); });
             }
+            if (!e.target.closest('.appycrud-ref-search')) {
+                document.querySelectorAll('.appycrud-ref-search-dropdown').forEach(function (d) { d.classList.add('hidden'); });
+            }
         });
 
         var appycrudPendingAction = null;
@@ -1230,6 +1287,7 @@ class TailwindRenderer
                 (string) ($values[$column->name] ?? ''),
                 $referenceOptions[$column->name] ?? [],
                 $errors[$column->name] ?? [],
+                $baseUrl,
             );
         }
 
@@ -1430,7 +1488,7 @@ class TailwindRenderer
      */
     private const AUTO_SEARCHABLE_OPTION_THRESHOLD = 8;
 
-    private function renderField(Column $column, string $value, array $options = [], array $errorMessages = []): string
+    private function renderField(Column $column, string $value, array $options = [], array $errorMessages = [], string $baseUrl = ''): string
     {
         $strategy = FieldType::strategy($column->inputType ?? '');
 
@@ -1488,7 +1546,9 @@ class TailwindRenderer
             FieldType::STRATEGY_PASSWORD => $this->renderTextLikeInput('password', $name, '', $baseClass . $errorClass, $required, $column->maxLength),
             FieldType::STRATEGY_PASSWORD_TOGGLE => $this->renderPasswordToggle($name, $baseClass . $errorClass, $required, $column->maxLength),
             FieldType::STRATEGY_SELECT => $this->renderSelect($name, $value, $optionSource, $required, $baseClass . $errorClass),
-            FieldType::STRATEGY_SELECT_SEARCHABLE => $this->renderSearchableSelect($column, $name, $value, $optionSource, $required, $baseClass . $errorClass),
+            FieldType::STRATEGY_SELECT_SEARCHABLE => $column->reference !== null
+                ? $this->renderSearchableSelectAjax($column, $name, $value, $optionSource, $required, $baseClass . $errorClass, $baseUrl)
+                : $this->renderSearchableSelect($column, $name, $value, $optionSource, $required, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT => $this->renderMultiselect($name, $value, $optionSource, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT_SEARCHABLE => $this->renderMultiselectSearchable($name, $value, $optionSource),
             FieldType::STRATEGY_FILE => $this->renderFileInput($name, $value, $baseClass . $errorClass, $required !== '' && $value === ''),
@@ -1665,6 +1725,36 @@ class TailwindRenderer
 
         return '<select id="' . $selectId . '" name="' . $name . '[]" multiple onchange="appycrudUpdateMultiselectCount(this)" class="' . $class . ' bg-white h-40">' . $optionsHtml . '</select>'
             . '<p class="mt-1 text-xs text-gray-500" data-multiselect-count="' . $selectId . '">' . count($selected) . ' ' . $this->e($this->translator->t('form.multiselect_selected_count')) . '</p>';
+    }
+
+    /**
+     * Combobox buscable con backend real (a diferencia de renderSearchableSelect,
+     * que precarga un top-N de opciones en un <datalist>): cada tecla dispara
+     * una busqueda en el servidor (AppyCrud::handleReferenceSearch, filtrado
+     * en SQL) con debounce, asi que encuentra cualquier fila de la tabla
+     * referenciada sin importar que tan grande sea o en que posicion
+     * alfabetica caiga el valor buscado. Vanilla JS, sin dependencias.
+     * @param array<int, array{value: mixed, label: string}> $options opciones ya conocidas (usadas solo para resolver el label inicial)
+     */
+    private function renderSearchableSelectAjax(Column $column, string $name, string $value, array $options, string $required, string $class, string $baseUrl): string
+    {
+        $currentLabel = '';
+        foreach ($options as $option) {
+            if ((string) $option['value'] === $value) {
+                $currentLabel = (string) $option['label'];
+                break;
+            }
+        }
+
+        $searchUrl = rtrim($baseUrl, '/') . '?action=reference_search&column=' . rawurlencode($column->name) . '&q=';
+        $placeholder = $this->e($this->translator->t('list.search_placeholder'));
+
+        return '<div class="appycrud-ref-search relative" data-url="' . $this->e($searchUrl) . '">'
+            . '<input type="text" class="appycrud-ref-search-input ' . $class . '" placeholder="' . $placeholder . '" value="' . $this->e($currentLabel) . '" autocomplete="off"'
+            . ' oninput="appycrudRefSearchInput(this)" onfocus="appycrudRefSearchInput(this)">'
+            . '<input type="hidden" name="' . $name . '" value="' . $this->e($value) . '"' . $required . '>'
+            . '<div class="appycrud-ref-search-dropdown hidden absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"></div>'
+            . '</div>';
     }
 
     /**

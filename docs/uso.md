@@ -148,6 +148,8 @@ Con menos de 9 opciones se sigue usando el `<select>` común — no vale la pena
 
 Si quieres forzar el combobox buscable aunque tenga pocas opciones (o al revés, quieres el comportamiento explícito por claridad), sigue disponible declarar `inputType => 'dropdown_search'`/`'enum_searchable'` a mano.
 
+**Referencias (llave foránea): búsqueda con backend real.** Cuando el campo buscable es una referencia (`reference`), la búsqueda no filtra opciones precargadas en el navegador — cada tecla (con 250ms de debounce) consulta la base de datos vía un endpoint propio (`action=reference_search`), así que encuentra cualquier fila sin importar cuántas tenga la tabla referenciada ni en qué posición alfabética caiga. `dropdown`/`enum` con `options` estáticas siguen usando el `<datalist>` precargado de siempre (no hace falta ir al servidor: la lista completa ya la escribiste tú en el código).
+
 ### Multiselect con muchas opciones
 
 `multiselect_native` (`<select multiple>`) tiene una altura fija — no crece sin límite aunque la lista de opciones sea larga; con muchas opciones, hace scroll interno. Debajo aparece un contador ("N seleccionado(s)") que se actualiza en vivo, para no tener que scrollear la lista completa solo para saber cuántos quedaron marcados.

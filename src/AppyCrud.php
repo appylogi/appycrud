@@ -90,7 +90,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.13';
+    public const VERSION = '0.1.14';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -265,6 +265,7 @@ class AppyCrud
             'bulkDelete' => $this->handleBulkDelete($post, $baseUrl),
             'export' => $this->handleExport($get),
             'print' => $this->handlePrint($get['id'] ?? ''),
+            'reference_search' => $this->handleReferenceSearch($get),
             default => $isAjax ? $this->renderListBody($get, $baseUrl) : $this->renderList($get, $baseUrl),
         };
     }
@@ -874,6 +875,39 @@ class AppyCrud
     {
         $row = $this->repository->find($id) ?? [];
         echo $this->renderer->renderPrintDocument($this->schema, $row, $this->referenceOptions([$row]));
+        exit;
+    }
+
+    /**
+     * Backend del combobox buscable "select2" para columnas de referencia
+     * (renderSearchableSelectAjax): filtra en la base de datos, no en el
+     * navegador -- por eso funciona sin importar cuantas filas tenga la
+     * tabla referenciada. Solo acepta columnas que realmente sean una
+     * referencia declarada en este schema (whitelist), nunca un nombre de
+     * columna/tabla arbitrario que venga del cliente.
+     */
+    private function handleReferenceSearch(array $get): never
+    {
+        header('Content-Type: application/json');
+
+        $columnName = $get['column'] ?? '';
+        $query = $get['q'] ?? '';
+        $column = null;
+        foreach ($this->schema->columns() as $candidate) {
+            if ($candidate->name === $columnName && $candidate->reference !== null) {
+                $column = $candidate;
+                break;
+            }
+        }
+
+        if ($column === null) {
+            http_response_code(404);
+            echo json_encode(['options' => []]);
+            exit;
+        }
+
+        $options = $this->repository->searchReferenceOptions($column, (string) $query);
+        echo json_encode(['options' => $options]);
         exit;
     }
 

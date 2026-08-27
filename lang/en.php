@@ -21,6 +21,7 @@ return [
     'list.filter_apply' => 'Filter',
     'list.filter_clear' => 'Clear',
     'list.search_placeholder' => 'Search...',
+    'list.search_no_results' => 'No results',
     'list.more_actions' => 'More actions',
     'list.empty' => 'No records to show.',
     'list.loading' => 'Loading...',
