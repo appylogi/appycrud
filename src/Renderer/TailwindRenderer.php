@@ -819,7 +819,7 @@ class TailwindRenderer
         @keyframes appycrud-pop { from { opacity: 0; transform: scale(.95) translateY(-8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         @keyframes appycrud-backdrop-fade { from { opacity: 0; } to { opacity: 1; } }
         </style>
-        <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-2xl !max-h-[85vh] !overflow-y-auto backdrop:bg-black/50">
+        <dialog id="appycrud-dialog" class="rounded-lg shadow-xl p-0 w-full max-w-4xl !max-h-[85vh] !overflow-y-auto backdrop:bg-black/50">
             <div id="appycrud-dialog-content"></div>
         </dialog>
         <dialog id="appycrud-confirm-dialog" class="rounded-lg shadow-xl p-6 w-full max-w-sm backdrop:bg-black/50">
@@ -1351,13 +1351,18 @@ class TailwindRenderer
             : '';
 
         return <<<HTML
-        <div class="p-6">
-            <h1 class="text-xl font-bold text-gray-900 mb-4">{$this->e($title)}</h1>
+        <div class="sticky top-0 z-10 flex items-start justify-between bg-white p-6 pb-3 border-b border-gray-100">
+            <h1 class="text-xl font-bold text-gray-900">{$this->e($title)}</h1>
+            <button type="button" onclick="appycrudCloseModal()" aria-label="{$this->e($t->t('form.cancel'))}" class="-mr-1 -mt-1 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">{$this->icon('x')}</button>
+        </div>
+        <div class="p-6 pt-3">
             {$generalErrorHtml}
             {$requiredLegend}
             <form method="post" action="{$this->e($baseUrl)}?action={$action}&id={$this->e((string) $pkValue)}" class="space-y-4"{$enctype} onsubmit="return appycrudSubmitForm(event, this)">
                 {$csrfField}
-                {$fields}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {$fields}
+                </div>
                 <div class="flex justify-end gap-3 pt-2">
                     <button type="button" onclick="appycrudCloseModal()" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$this->e($t->t('form.cancel'))}</button>
                     <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">{$this->e($t->t('form.save'))}</button>
@@ -1429,8 +1434,11 @@ class TailwindRenderer
         $printUrl = $this->e($baseUrl) . '?action=print&id=' . $this->e($id);
 
         return <<<HTML
-        <div class="p-6">
-            <h1 class="text-xl font-bold text-gray-900 mb-4">{$this->e($t->t('view.title'))}</h1>
+        <div class="sticky top-0 z-10 flex items-start justify-between bg-white p-6 pb-3 border-b border-gray-100">
+            <h1 class="text-xl font-bold text-gray-900">{$this->e($t->t('view.title'))}</h1>
+            <button type="button" onclick="appycrudCloseModal()" aria-label="{$this->e($t->t('view.close'))}" class="-mr-1 -mt-1 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">{$this->icon('x')}</button>
+        </div>
+        <div class="p-6 pt-3">
             <dl>{$rows}</dl>
             <div class="flex justify-end gap-3 pt-4">
                 <a href="{$printUrl}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">{$this->icon('printer')}<span>{$this->e($t->t('view.print'))}</span></a>
@@ -1522,7 +1530,7 @@ class TailwindRenderer
             ? $this->renderMultiselectSearchable($name, $selectedCsv, $relation['options'])
             : $this->renderMultiselect($name, $selectedCsv, $relation['options'], $class);
 
-        return '<div>' . $label . $input . '</div>';
+        return '<div class="md:col-span-2">' . $label . $input . '</div>';
     }
 
     /**
@@ -1616,7 +1624,17 @@ class TailwindRenderer
             $errorHtml .= '<p class="mt-1 text-xs text-red-600">' . $this->e($message) . '</p>';
         }
 
-        return '<div>' . $label . $input . $errorHtml . '</div>';
+        // En el grid de 2 columnas del formulario (ver renderForm), los campos
+        // de contenido largo se ven mal apretados a media columna -- ocupan las
+        // dos.
+        $wideFieldStrategies = [
+            FieldType::STRATEGY_TEXTAREA, FieldType::STRATEGY_RICHTEXT,
+            FieldType::STRATEGY_MULTISELECT, FieldType::STRATEGY_MULTISELECT_SEARCHABLE,
+            FieldType::STRATEGY_FILE,
+        ];
+        $wrapperClass = in_array($strategy, $wideFieldStrategies, true) ? ' class="md:col-span-2"' : '';
+
+        return '<div' . $wrapperClass . '>' . $label . $input . $errorHtml . '</div>';
     }
 
     /** @param array<string,string> $extraAttrs */

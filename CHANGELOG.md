@@ -2,6 +2,14 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.25] - 2026-08-27
+
+### Mejorado
+- El modal de crear/editar/ver era angosto (`max-w-2xl`) y en formularios con muchos campos había que bajar bastante para encontrar "Cancelar"/"Cerrar" al final. Ahora:
+  - El modal es más ancho (`max-w-4xl`).
+  - Cada formulario tiene un encabezado fijo (sticky) con el título y un botón **X** para cerrar sin buscar el botón al final (Escape ya funcionaba desde antes).
+  - Los campos del formulario se acomodan en una grilla de 2 columnas en pantallas medianas/grandes (los campos de texto largo, archivo, richtext y multiselect siguen ocupando el ancho completo) — formularios largos (ej. "Acuerdos" con 50+ campos) quedan la mitad de largos.
+
 ## [0.1.24] - 2026-08-27
 
 ### Agregado
