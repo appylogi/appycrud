@@ -78,7 +78,7 @@ if ($isAjax) {
 </html>
 ```
 
-Eso ya te da un CRUD completo sobre la tabla `clientes`. Ver [docs/uso.md](docs/uso.md) para el detalle de cada opción (`TableConfig`, `deleteMode`, `cloneExcludeColumns`, reglas de validación, cómo agregar un idioma, etc.) y [examples/index.php](examples/index.php) para un ejemplo funcional completo con relaciones.
+Eso ya te da un CRUD completo sobre la tabla `clientes`. Ver [docs/uso.md](docs/uso.md) para el detalle de cada opción (`TableConfig`, `deleteMode`, `cloneExcludeColumns`, reglas de validación, cómo agregar un idioma, etc.), [examples/index.php](examples/index.php) para un ejemplo funcional completo con relaciones, y [examples/live-demo/](examples/live-demo/) para la misma demo de 5 páginas que corre en [appycrud.appylogi.com/demo](https://appycrud.appylogi.com/demo/) — se levanta local con `php -S localhost:8000` desde la raíz del repo.
 
 ## Documentación
 
