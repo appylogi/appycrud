@@ -415,10 +415,25 @@ $crud = new AppyCrud($connection, 'tareas', $config, 'es', [
 | `rowActions` | `[]` | `RowAction[]`, ver [Acciones custom por fila](#acciones-custom-por-fila). |
 | `uploadDir` | `null` | Ruta absoluta para archivos subidos; obligatorio si hay algún campo `file`. |
 | `uploadUrlPrefix` | `null` | URL pública para el link de descarga en listado/vista; sin esto, solo se muestra el nombre del archivo. |
+| `actionsPosition` | `ActionsPosition::RIGHT` | Lado de la tabla donde va la columna de acciones (editar/ver/eliminar/clonar/custom): `ActionsPosition::RIGHT` (default) o `ActionsPosition::LEFT`. Ver [ejemplo abajo](#columna-de-acciones-izquierda-o-derecha). |
 | `deleteFilesOnDelete` | `true` | Borra del disco los archivos (columnas `file`) del registro cuando se elimina la fila completa. |
 | `checkForUpdates` | `false` | Aviso descartable de nueva versión disponible, ver [Aviso de nueva versión](#aviso-de-nueva-versión-checkforupdates). |
 
 Filtro, búsqueda y orden funcionan por AJAX (sin recargar la página) pero siguen siendo consultas al servidor — no se pierden resultados en tablas con miles de filas y paginación, a diferencia de un filtro puramente en JavaScript sobre lo ya cargado en pantalla.
+
+### Columna de acciones: izquierda o derecha
+
+Por defecto, la columna de acciones (editar, ver, eliminar, clonar, y cualquier `RowAction` custom) va a la **derecha** de la tabla, como la mayoría de tablas de datos:
+
+```php
+use Appylogi\AppyCrud\Crud\ActionsPosition;
+
+$crud = new AppyCrud($connection, 'tareas', $config, 'es', [
+    'actionsPosition' => ActionsPosition::LEFT, // o ActionsPosition::RIGHT (default)
+]);
+```
+
+Con `ActionsPosition::LEFT`, la columna de acciones aparece como la primera columna de datos (justo después de la casilla de "seleccionar todos" si `bulkDelete` está activo), tanto en el encabezado como en cada fila. Es la misma información y los mismos botones — solo cambia el lado.
 
 ## Ordenar por cualquier columna
 

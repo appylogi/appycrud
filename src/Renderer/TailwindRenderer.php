@@ -2,6 +2,7 @@
 
 namespace Appylogi\AppyCrud\Renderer;
 
+use Appylogi\AppyCrud\Crud\ActionsPosition;
 use Appylogi\AppyCrud\Crud\DeleteMode;
 use Appylogi\AppyCrud\Lang\Translator;
 use Appylogi\AppyCrud\Schema\Column;
@@ -187,11 +188,21 @@ class TailwindRenderer
             ? '<th class="px-4 py-2 text-left print:hidden">' . $this->renderBulkDeleteControl($schema, $baseUrl, $deleteMode, $activeFilters, $search) . '</th>'
             : '';
 
-        $headers = $bulkHeaderCell;
+        // A la derecha por defecto (ActionsPosition::RIGHT); ActionsPosition::LEFT
+        // la ubica justo despues de la casilla de "seleccionar todos" (si el
+        // borrado masivo esta activo) o como primera columna de la tabla.
+        $actionsOnLeft = ($features['actionsPosition'] ?? ActionsPosition::RIGHT) === ActionsPosition::LEFT;
+        $actionsAlign = $actionsOnLeft ? 'text-left' : 'text-right';
+        $actionsHeaderCell = '<th class="px-4 py-2 ' . $actionsAlign . ' text-xs font-semibold uppercase text-gray-600 print:hidden">' . $this->e($t->t('list.actions')) . '</th>';
+
+        $dataHeaders = '';
         foreach ($columns as $column) {
-            $headers .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $this->renderSortLink($column, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $advancedFilters) . '</th>';
+            $dataHeaders .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $this->renderSortLink($column, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $advancedFilters) . '</th>';
         }
-        $headers .= '<th class="px-4 py-2 text-right text-xs font-semibold uppercase text-gray-600 print:hidden">' . $this->e($t->t('list.actions')) . '</th>';
+
+        $headers = $actionsOnLeft
+            ? $bulkHeaderCell . $actionsHeaderCell . $dataHeaders
+            : $bulkHeaderCell . $dataHeaders . $actionsHeaderCell;
 
         $filterHeaderRow = ($features['filters'] ?? true)
             ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields, $referenceOptions)
@@ -201,10 +212,11 @@ class TailwindRenderer
         foreach ($pagination['rows'] as $row) {
             $pkValue = $pk !== null ? $row[$pk->name] : '';
 
-            $cells = $bulkDeleteEnabled
+            $bulkCell = $bulkDeleteEnabled
                 ? '<td class="px-4 py-2 print:hidden"><input type="checkbox" class="appycrud-row-check" onchange="appycrudUpdateBulkUI()" value="' . $this->e((string) $pkValue) . '"></td>'
                 : '';
 
+            $dataCells = '';
             foreach ($columns as $column) {
                 $rawValue = (string) ($row[$column->name] ?? '');
                 $displayValue = ($column->reference !== null || $column->options !== [])
@@ -217,10 +229,14 @@ class TailwindRenderer
                     default => $this->e($displayValue),
                 };
 
-                $cells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $cellContent . '</td>';
+                $dataCells .= '<td class="px-4 py-2 text-sm text-gray-800">' . $cellContent . '</td>';
             }
 
-            $cells .= '<td class="px-4 py-2 text-right text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions, $deleteEnabled, $editEnabled) . '</td>';
+            $actionsCell = '<td class="px-4 py-2 ' . $actionsAlign . ' text-sm print:hidden">' . $this->renderRowActions($baseUrl, $pkValue, $deleteMode, $viewEnabled, $cloneEnabled, $t, $csrfToken, $rowActions, $deleteEnabled, $editEnabled) . '</td>';
+
+            $cells = $actionsOnLeft
+                ? $bulkCell . $actionsCell . $dataCells
+                : $bulkCell . $dataCells . $actionsCell;
 
             $bodyRows .= '<tr class="border-b border-gray-100 hover:bg-gray-50">' . $cells . '</tr>';
         }

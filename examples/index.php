@@ -155,6 +155,10 @@ $locale = $_GET['lang'] ?? 'es';
 //   'editFields'   => ['titulo', 'completada'],    // solo estos al editar
 $options = [
     'deleteMode' => \Appylogi\AppyCrud\Crud\DeleteMode::CONFIRM,
+    // Lado de la tabla donde va la columna de acciones (editar/ver/eliminar/
+    // clonar/custom). Por defecto ActionsPosition::RIGHT; se deja LEFT aqui
+    // solo para que el ejemplo muestre ambos casos (ver docs/uso.md).
+    'actionsPosition' => \Appylogi\AppyCrud\Crud\ActionsPosition::LEFT,
     // Consulta Packagist como mucho 1 vez cada 24h (con cache en disco) y
     // muestra un aviso descartable si hay una version mas nueva publicada.
     // Apagado por defecto en AppyCrud; se activa aqui solo para que se vea

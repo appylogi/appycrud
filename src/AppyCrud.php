@@ -2,6 +2,7 @@
 
 namespace Appylogi\AppyCrud;
 
+use Appylogi\AppyCrud\Crud\ActionsPosition;
 use Appylogi\AppyCrud\Crud\Condition;
 use Appylogi\AppyCrud\Crud\Csrf;
 use Appylogi\AppyCrud\Crud\CrudRepository;
@@ -90,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.14';
+    public const VERSION = '0.1.15';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -156,7 +157,12 @@ class AppyCrud
             'cloneExcludeColumns' => $options['cloneExcludeColumns'] ?? [],
             'cloneSuffixColumn' => $options['cloneSuffixColumn'] ?? null,
             'cloneSuffix' => $options['cloneSuffix'] ?? ' (copia)',
+            'actionsPosition' => $options['actionsPosition'] ?? ActionsPosition::RIGHT,
         ];
+
+        if (!in_array($this->features['actionsPosition'], [ActionsPosition::LEFT, ActionsPosition::RIGHT], true)) {
+            throw new InvalidArgumentException("AppyCrud: 'actionsPosition' debe ser ActionsPosition::LEFT o ActionsPosition::RIGHT.");
+        }
 
         $this->csrfEnabled = $options['csrf'] ?? true;
         $this->csrfSessionKey = 'appycrud_csrf_' . $table;

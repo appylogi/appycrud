@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.15] - 2026-08-27
+
+### Agregado
+- Opción `actionsPosition` (`Crud\ActionsPosition::RIGHT`, default, o `::LEFT`): ubica la columna de acciones (editar/ver/eliminar/clonar/custom) a la izquierda o derecha de la tabla, en encabezado y filas. Ver [docs/uso.md](docs/uso.md#columna-de-acciones-izquierda-o-derecha) y `examples/index.php`.
+
 ## [0.1.14] - 2026-08-27
 
 ### Corregido
