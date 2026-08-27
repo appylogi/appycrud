@@ -140,6 +140,14 @@ Cuando el campo no es una llave foránea, dale las opciones a mano:
 
 Si la columna es un `ENUM(...)` de MySQL, AppyCrud detecta los valores solo y los usa como opciones automáticamente — no hace falta declarar `options` a mano (aunque puedes sobreescribirlas si quieres otros labels).
 
+### Selects buscables
+
+Un `<select>` (referencia, `dropdown` o `enum`) con más de 8 opciones se vuelve buscable automáticamente — el mismo widget que `dropdown_search`/`enum_searchable` (`<input list>` + `<datalist>` nativo del navegador, sin JS de terceros), pero sin necesidad de declarar `inputType` a mano. Esto cubre el caso más común: una referencia a una tabla con cientos o miles de filas (ciudades, clientes, productos...) siempre queda buscable, sin tener que acordarse de configurarlo columna por columna.
+
+Con menos de 9 opciones se sigue usando el `<select>` común — no vale la pena el combobox de búsqueda para una lista corta.
+
+Si quieres forzar el combobox buscable aunque tenga pocas opciones (o al revés, quieres el comportamiento explícito por claridad), sigue disponible declarar `inputType => 'dropdown_search'`/`'enum_searchable'` a mano.
+
 ### Multiselect con muchas opciones
 
 `multiselect_native` (`<select multiple>`) tiene una altura fija — no crece sin límite aunque la lista de opciones sea larga; con muchas opciones, hace scroll interno. Debajo aparece un contador ("N seleccionado(s)") que se actualiza en vivo, para no tener que scrollear la lista completa solo para saber cuántos quedaron marcados.

@@ -1421,6 +1421,15 @@ class TailwindRenderer
         return '<div>' . $label . $input . '</div>';
     }
 
+    /**
+     * A partir de cuantas opciones un <select> comun se vuelve incomodo de
+     * usar con el mouse/scroll y conviene auto-promoverlo a buscable — sin
+     * que el desarrollador tenga que acordarse de poner inputType =>
+     * 'dropdown_search' en cada columna con muchas opciones (referencias a
+     * ciudades, por ejemplo, facilmente pasan de cientos de filas).
+     */
+    private const AUTO_SEARCHABLE_OPTION_THRESHOLD = 8;
+
     private function renderField(Column $column, string $value, array $options = [], array $errorMessages = []): string
     {
         $strategy = FieldType::strategy($column->inputType ?? '');
@@ -1443,6 +1452,15 @@ class TailwindRenderer
         $errorClass = $errorMessages !== [] ? ' border-red-400' : '';
         $required = !$column->nullable ? ' required' : '';
         $optionSource = $column->reference !== null ? $options : $column->options;
+
+        // auto-promover a buscable: cubre tanto dropdown/enum como
+        // referencias sin inputType explicito (el caso mas comun -- p.ej.
+        // ciudad_destino con cientos de filas). Si el desarrollador ya pidio
+        // 'dropdown_search' a proposito, $strategy ya viene en
+        // STRATEGY_SELECT_SEARCHABLE y esta condicion no aplica.
+        if ($strategy === FieldType::STRATEGY_SELECT && count($optionSource) > self::AUTO_SEARCHABLE_OPTION_THRESHOLD) {
+            $strategy = FieldType::STRATEGY_SELECT_SEARCHABLE;
+        }
 
         if ($strategy === FieldType::STRATEGY_HIDDEN) {
             return '<input type="hidden" name="' . $name . '" value="' . $this->e($value) . '">';

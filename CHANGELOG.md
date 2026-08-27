@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.13] - 2026-08-27
+
+### Agregado
+- Los `<select>` (referencias, dropdown, enum) con mas de 8 opciones ahora se vuelven buscables automaticamente (`renderSearchableSelect`, ya existia pero antes solo se activaba con `inputType => 'dropdown_search'` explicito) — sin JS de terceros, `<input list>` + `<datalist>` nativo del navegador. No requiere configuracion por columna. Ver [docs/uso.md](docs/uso.md#selects-buscables).
+
 ## [0.1.12] - 2026-08-26
 
 ### Agregado
