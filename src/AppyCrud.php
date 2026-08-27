@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.22';
+    public const VERSION = '0.1.23';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -406,9 +406,21 @@ class AppyCrud
 
     private function handleClone(array $get, string $baseUrl): string
     {
-        $row = $this->repository->cloneData($get['id'] ?? '', $this->features['cloneExcludeColumns'], $this->features['cloneSuffixColumn'], $this->features['cloneSuffix']) ?? [];
+        $sourceId = $get['id'] ?? '';
+        $row = $this->repository->cloneData($sourceId, $this->features['cloneExcludeColumns'], $this->features['cloneSuffixColumn'], $this->features['cloneSuffix']) ?? [];
 
-        return $this->renderer->renderForm($this->schema, $row, $baseUrl, false, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null));
+        // El registro clonado arranca sin pkid (todavia no existe), asi que
+        // manyToManyFormData(null, ...) no puede leer sus selecciones desde
+        // la BD como hace un 'edit' normal -- sin esto, cada relacion
+        // many-to-many (ej. operadores de un cliente) quedaba siempre vacia
+        // al clonar, perdiendo silenciosamente las asociaciones del
+        // registro original.
+        $clonedSelections = [];
+        foreach ($this->manyToMany as $name => $relation) {
+            $clonedSelections[$name] = $this->repository->manyToManySelected($relation, $sourceId);
+        }
+
+        return $this->renderer->renderForm($this->schema, $row, $baseUrl, false, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $clonedSelections));
     }
 
     /** Solo se consulta si 'checkForUpdates' esta activo; nunca lanza excepciones. */

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.23] - 2026-08-27
+
+### Corregido
+- "Clonar" (`action=clone`) prellenaba el formulario con los datos del registro original, pero **no** con sus relaciones many-to-many: `handleClone()` llamaba `manyToManyFormData(null)` sin pasarle las selecciones del registro fuente, asi que cada relacion (ej. "Operadores logisticos" de un cliente) quedaba siempre vacia en el formulario de clonacion, perdiendo silenciosamente las asociaciones existentes. Ahora se leen las selecciones del registro original y se usan para prellenar el multiselect del clon.
+
 ## [0.1.22] - 2026-08-27
 
 ### Corregido
