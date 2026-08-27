@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.28';
+    public const VERSION = '0.1.29';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -282,7 +282,7 @@ class AppyCrud
         }
 
         return match ($action) {
-            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null)),
+            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null), $this->uploadUrlPrefix),
             'edit' => $this->handleEdit($get, $baseUrl),
             'view' => $this->handleView($get, $baseUrl),
             'clone' => $this->handleClone($get, $baseUrl),
@@ -430,7 +430,7 @@ class AppyCrud
     {
         $row = $this->repository->find($get['id'] ?? '') ?? [];
 
-        return $this->renderer->renderForm($this->schema, $row, $baseUrl, true, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($get['id'] ?? null));
+        return $this->renderer->renderForm($this->schema, $row, $baseUrl, true, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($get['id'] ?? null), $this->uploadUrlPrefix);
     }
 
     private function handleView(array $get, string $baseUrl): string
@@ -456,7 +456,7 @@ class AppyCrud
             $clonedSelections[$name] = $this->repository->manyToManySelected($relation, $sourceId);
         }
 
-        return $this->renderer->renderForm($this->schema, $row, $baseUrl, false, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $clonedSelections));
+        return $this->renderer->renderForm($this->schema, $row, $baseUrl, false, $this->referenceOptions([$row]), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $clonedSelections), $this->uploadUrlPrefix);
     }
 
     /** Solo se consulta si 'checkForUpdates' esta activo; nunca lanza excepciones. */
@@ -565,7 +565,7 @@ class AppyCrud
 
         if (!$this->verifyCsrf($post)) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections), $this->uploadUrlPrefix);
         }
 
         $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields)));
@@ -575,7 +575,7 @@ class AppyCrud
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections), $this->uploadUrlPrefix);
         }
 
         $post = $this->normalizeEmptyNonStringFields($post, true);
@@ -585,7 +585,7 @@ class AppyCrud
                 $post = $beforeInsert($post);
             } catch (HookAbortException $e) {
                 http_response_code(422);
-                return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $e->getMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+                return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $e->getMessage(), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections), $this->uploadUrlPrefix);
             }
         }
 
@@ -596,10 +596,10 @@ class AppyCrud
             // nada, pero otro proceso inserto el mismo valor justo antes de este INSERT.
             http_response_code(422);
             $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections), $this->uploadUrlPrefix);
         } catch (\Throwable $e) {
             http_response_code(500);
-            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $this->databaseErrorMessage($e), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $this->databaseErrorMessage($e), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections), $this->uploadUrlPrefix);
         }
         $this->syncManyToMany($id, $m2mSelections);
 
@@ -618,7 +618,7 @@ class AppyCrud
 
         if (!$this->verifyCsrf($post)) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $this->csrfErrorMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections), $this->uploadUrlPrefix);
         }
 
         $existingRow = $this->repository->find($id);
@@ -631,7 +631,7 @@ class AppyCrud
 
         if ($errors !== []) {
             http_response_code(422);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections), $this->uploadUrlPrefix);
         }
 
         $post = $this->normalizeEmptyNonStringFields($post, false);
@@ -642,7 +642,7 @@ class AppyCrud
                 $values = $pk !== null ? $post + [$pk->name => $id] : $post;
             } catch (HookAbortException $e) {
                 http_response_code(422);
-                return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $e->getMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+                return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $e->getMessage(), $this->editFields, $this->manyToManyFormData($id, $m2mSelections), $this->uploadUrlPrefix);
             }
         }
 
@@ -651,10 +651,10 @@ class AppyCrud
         } catch (DuplicateValueException $e) {
             http_response_code(422);
             $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections), $this->uploadUrlPrefix);
         } catch (\Throwable $e) {
             http_response_code(500);
-            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $this->databaseErrorMessage($e), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $this->databaseErrorMessage($e), $this->editFields, $this->manyToManyFormData($id, $m2mSelections), $this->uploadUrlPrefix);
         }
         $this->syncManyToMany($id, $m2mSelections);
 

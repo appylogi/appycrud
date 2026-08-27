@@ -417,6 +417,12 @@ class TailwindRenderer
 
         $url = $this->e(rtrim($uploadUrlPrefix, '/') . '/' . $filename);
 
+        if ($this->isImageFilename($filename)) {
+            return '<button type="button" onclick="appycrudPreviewImage(\'' . $url . '\')" title="Ver imagen completa">'
+                . '<img src="' . $url . '" alt="" class="h-16 w-16 object-cover rounded-md border border-gray-200 hover:opacity-80">'
+                . '</button>';
+        }
+
         return '<a href="' . $url . '" target="_blank" class="text-blue-600 hover:underline">' . $this->e($filename) . '</a>';
     }
 
@@ -829,6 +835,12 @@ class TailwindRenderer
             <div class="flex justify-end gap-3">
                 <button type="button" onclick="appycrudCancelConfirm()" class="px-4 py-2 text-sm text-gray-600 hover:underline">{$cancelLabel}</button>
                 <button type="button" id="appycrud-confirm-accept-btn" data-default-label="{$defaultAcceptLabel}" onclick="appycrudAcceptConfirm()" class="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700">{$defaultAcceptLabel}</button>
+            </div>
+        </dialog>
+        <dialog id="appycrud-image-preview" onclick="if (event.target === this) this.close()" class="rounded-lg shadow-xl p-0 bg-transparent max-w-[90vw] max-h-[90vh] backdrop:bg-black/70">
+            <div class="relative">
+                <button type="button" onclick="document.getElementById('appycrud-image-preview').close()" aria-label="Cerrar" class="absolute -top-3 -right-3 bg-white rounded-full p-1.5 text-gray-600 hover:text-gray-900 shadow-md">{$this->icon('x')}</button>
+                <img id="appycrud-image-preview-img" src="" alt="" class="max-w-[90vw] max-h-[90vh] rounded-md object-contain">
             </div>
         </dialog>
         <script>
@@ -1248,6 +1260,12 @@ class TailwindRenderer
             document.getElementById('appycrud-confirm-dialog').close();
         }
 
+        function appycrudPreviewImage(url) {
+            var img = document.getElementById('appycrud-image-preview-img');
+            img.src = url;
+            document.getElementById('appycrud-image-preview').showModal();
+        }
+
         function appycrudAcceptConfirm() {
             if (!appycrudPendingAction) {
                 return;
@@ -1302,7 +1320,7 @@ class TailwindRenderer
      * @param array<int, array{name: string, label: string, options: array<int, array{value: mixed, label: string}>, selected: string[], inputType: string}> $manyToMany
      *   relaciones muchos-a-muchos, renderizadas como multiselect adicional (ver Crud\ManyToMany)
      */
-    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = '', ?array $fieldsWhitelist = null, array $manyToMany = []): string
+    public function renderForm(TableSchema $schema, array $values, string $baseUrl, bool $isEdit, array $referenceOptions = [], array $errors = [], string $csrfToken = '', string $generalError = '', ?array $fieldsWhitelist = null, array $manyToMany = [], ?string $uploadUrlPrefix = null): string
     {
         $t = $this->translator;
         $pk = $schema->primaryKey();
@@ -1336,6 +1354,7 @@ class TailwindRenderer
                 $referenceOptions[$column->name] ?? [],
                 $errors[$column->name] ?? [],
                 $baseUrl,
+                $uploadUrlPrefix,
             );
         }
 
@@ -1544,7 +1563,7 @@ class TailwindRenderer
      */
     private const AUTO_SEARCHABLE_OPTION_THRESHOLD = 8;
 
-    private function renderField(Column $column, string $value, array $options = [], array $errorMessages = [], string $baseUrl = ''): string
+    private function renderField(Column $column, string $value, array $options = [], array $errorMessages = [], string $baseUrl = '', ?string $uploadUrlPrefix = null): string
     {
         $strategy = FieldType::strategy($column->inputType ?? '');
 
@@ -1616,7 +1635,7 @@ class TailwindRenderer
                 : $this->renderSearchableSelect($column, $name, $value, $optionSource, $required, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT => $this->renderMultiselect($name, $value, $optionSource, $baseClass . $errorClass),
             FieldType::STRATEGY_MULTISELECT_SEARCHABLE => $this->renderMultiselectSearchable($name, $value, $optionSource),
-            FieldType::STRATEGY_FILE => $this->renderFileInput($name, $value, $baseClass . $errorClass, $required !== '' && $value === ''),
+            FieldType::STRATEGY_FILE => $this->renderFileInput($name, $value, $baseClass . $errorClass, $required !== '' && $value === '', $uploadUrlPrefix),
             FieldType::STRATEGY_RICHTEXT => $this->renderRichText($name, $value, $errorClass, FieldType::isRichTextAdvanced($column->inputType ?? '')),
             default => $this->renderTextLikeInput('text', $name, $value, $baseClass . $errorClass, $required, $column->maxLength),
         };
@@ -1659,7 +1678,7 @@ class TailwindRenderer
      * selecciona uno nuevo al guardar, AppyCrud conserva el archivo actual
      * (ver AppyCrud::processFileUploads()).
      */
-    private function renderFileInput(string $name, string $value, string $class, bool $required): string
+    private function renderFileInput(string $name, string $value, string $class, bool $required, ?string $uploadUrlPrefix = null): string
     {
         $input = '<input type="file" name="' . $name . '" class="' . $class . '"' . ($required ? ' required' : '') . '>';
 
@@ -1671,10 +1690,32 @@ class TailwindRenderer
         $removeLabel = $this->e($this->translator->t('form.remove_file'));
         $removeName = 'remove_' . $name;
 
-        return $input . '<p class="mt-1 text-xs text-gray-500">' . $currentLabel . '</p>'
+        // Si el archivo actual es una imagen y hay de donde servirla, se
+        // muestra una miniatura clickeable (abre appycrud-image-preview a
+        // tamaño completo) en vez de solo el nombre del archivo -- para
+        // cualquier otro tipo (PDF, etc.) se deja el texto informativo tal
+        // cual, ya estaba bien.
+        $preview = '';
+        if ($uploadUrlPrefix !== null && $this->isImageFilename($value)) {
+            $url = $this->e(rtrim($uploadUrlPrefix, '/') . '/' . $value);
+            $preview = '<button type="button" onclick="appycrudPreviewImage(\'' . $url . '\')" class="mt-1.5 block" title="Ver imagen completa">'
+                . '<img src="' . $url . '" alt="" class="h-20 w-20 object-cover rounded-md border border-gray-200 hover:opacity-80">'
+                . '</button>';
+        }
+
+        return $input . $preview . '<p class="mt-1 text-xs text-gray-500">' . $currentLabel . '</p>'
             . '<label class="mt-1 flex items-center gap-1.5 text-xs text-gray-600">'
             . '<input type="checkbox" name="' . $removeName . '" value="1" class="rounded border-gray-300">'
             . $removeLabel . '</label>';
+    }
+
+    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+
+    private function isImageFilename(string $filename): bool
+    {
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        return in_array($ext, self::IMAGE_EXTENSIONS, true);
     }
 
     /**

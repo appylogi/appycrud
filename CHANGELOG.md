@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.29] - 2026-08-27
+
+### Agregado
+- Un campo `inputType: 'file'` con un archivo de imagen ya guardado (jpg/jpeg/png/gif/webp/bmp/svg) ahora muestra una miniatura clickeable en el formulario de edicion (y en la vista de solo lectura), en vez de solo el nombre del archivo. Click abre la imagen a tamaño completo en un lightbox (`Escape` o click fuera para cerrar). Otros tipos de archivo (PDF, etc.) siguen mostrando el link de siempre. Requiere que `uploadUrlPrefix` este configurado (si no, se comporta igual que antes).
+
 ## [0.1.28] - 2026-08-27
 
 ### Corregido
