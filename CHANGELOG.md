@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.28] - 2026-08-27
+
+### Corregido
+- Cuando la tabla pedida no existe en la conexion actual (comun en apps multi-tenant, donde cada tenant solo tiene el subconjunto de tablas que realmente usa), el constructor de `AppyCrud` lanzaba una excepcion sin manejar -- 500 sin contexto para el usuario final. Ahora esa condicion se distingue con la nueva `Schema\TableNotFoundException`, y `handle()` la captura mostrando "Este modulo no esta configurado para tu cuenta" en vez de un error crudo.
+
 ## [0.1.27] - 2026-08-27
 
 ### Agregado

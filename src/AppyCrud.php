@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.27';
+    public const VERSION = '0.1.28';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -118,6 +118,16 @@ class AppyCrud
     private int $perPage;
     /** @var int[] */
     private array $perPageOptions;
+    /**
+     * true cuando la tabla pedida no existe (o no tiene columnas visibles)
+     * en esta conexion -- comun en apps multi-tenant donde cada tenant solo
+     * tiene el subconjunto de tablas que realmente usa (ej. solo algunas
+     * integraciones de operador). handle() corta temprano y muestra un
+     * mensaje amigable en vez de dejar que el resto del constructor truene
+     * intentando usar un $schema que nunca se pudo armar.
+     */
+    private bool $tableMissing = false;
+    private string $tableMissingMessage = '';
 
     public function __construct(
         private Connection $connection,
@@ -126,7 +136,14 @@ class AppyCrud
         string $locale = 'es',
         array $options = [],
     ) {
-        $this->schema = (new TableIntrospector())->introspect($connection, $table, $config);
+        try {
+            $this->schema = (new TableIntrospector())->introspect($connection, $table, $config);
+        } catch (\Appylogi\AppyCrud\Schema\TableNotFoundException $e) {
+            $this->tableMissing = true;
+            $this->tableMissingMessage = $e->getMessage();
+
+            return;
+        }
 
         $this->deleteMode = $options['deleteMode'] ?? DeleteMode::CONFIRM;
         $softDeleteColumn = $options['softDeleteColumn'] ?? null;
@@ -240,6 +257,10 @@ class AppyCrud
      */
     public function handle(string $baseUrl, array $get, array $post, bool $isAjax = false, array $files = []): string
     {
+        if ($this->tableMissing) {
+            return $this->renderTableMissing();
+        }
+
         $action = $get['action'] ?? 'list';
 
         if (in_array($action, ['create', 'store'], true) && !($this->features['create'] ?? true)) {
@@ -274,6 +295,21 @@ class AppyCrud
             'reference_search' => $this->handleReferenceSearch($get),
             default => $isAjax ? $this->renderListBody($get, $baseUrl) : $this->renderList($get, $baseUrl),
         };
+    }
+
+    /**
+     * $this->renderer/$this->schema nunca se terminaron de armar (el
+     * constructor corto apenas detecto la tabla faltante) -- este mensaje se
+     * arma a mano, sin depender de ninguno de los dos.
+     */
+    private function renderTableMissing(): string
+    {
+        $table = htmlspecialchars($this->table, ENT_QUOTES, 'UTF-8');
+
+        return '<div class="p-6 text-center">'
+            . '<p class="text-gray-600 text-sm">Este modulo no esta configurado para tu cuenta.</p>'
+            . '<p class="text-gray-400 text-xs mt-1">(tabla &quot;' . $table . '&quot; no existe en esta base de datos)</p>'
+            . '</div>';
     }
 
     /**
