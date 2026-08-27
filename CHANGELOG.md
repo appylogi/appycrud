@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.19] - 2026-08-27
+
+### Corregido
+- Guardar (crear o editar) fallaba con un error 500 de base de datos (`Incorrect integer value: ''`) cuando un campo numerico/fecha opcional (no marcado `required`, ver 0.1.18) se dejaba en blanco pero la columna en BD es `NOT NULL`. El formulario mandaba `''` explicitamente en el INSERT/UPDATE; MySQL en modo estricto rechaza eso, y ademas **no** aplica el `DEFAULT` de la columna cuando el valor llega vacio en vez de omitirse del todo. `handleStore()`/`handleUpdate()` ahora quitan del payload cualquier columna numerica/fecha (`int`, `decimal`, `float`, `double`, `date`, `time`, `year`, `bit`) que llego vacia, para que la BD aplique su propio `DEFAULT`/`NULL` en vez de recibir `''`. No afecta a columnas de texto (`varchar`/`text`/`enum`/etc.), que siguen guardando `''` tal cual si el usuario la deja vacia.
+
 ## [0.1.18] - 2026-08-27
 
 ### Corregido

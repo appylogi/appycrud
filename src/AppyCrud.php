@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.18';
+    public const VERSION = '0.1.19';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -530,6 +530,8 @@ class AppyCrud
             return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
 
+        $post = $this->normalizeEmptyNonStringFields($post);
+
         if (($beforeInsert = $this->hook('beforeInsert')) !== null) {
             try {
                 $post = $beforeInsert($post);
@@ -580,6 +582,8 @@ class AppyCrud
             http_response_code(422);
             return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
+
+        $post = $this->normalizeEmptyNonStringFields($post);
 
         if (($beforeUpdate = $this->hook('beforeUpdate')) !== null) {
             try {
@@ -725,6 +729,47 @@ class AppyCrud
             if (isset($data[$column->name]) && is_array($data[$column->name]) && FieldType::isMultiselect($column->inputType ?? '')) {
                 $data[$column->name] = implode(',', $data[$column->name]);
             }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Un select/reference/numero/fecha que el usuario deja en blanco llega
+     * como '' (string vacio), aunque la columna en BD sea numerica o de
+     * fecha. MySQL en modo estricto rechaza eso ("Incorrect integer value")
+     * incluso cuando la columna tiene un DEFAULT -- porque un valor '' SI
+     * se envia explicitamente en el INSERT/UPDATE, MySQL no aplica el
+     * DEFAULT (solo lo aplica cuando la columna se omite del todo). Esto
+     * rompia el guardado de formularios que dejan opcional un campo NOT
+     * NULL sin marcarlo 'required' (ver docs/uso.md, seccion "Columna
+     * obligatoria vs. NOT NULL en la BD"). Aqui se quita esa columna de
+     * $data para que la BD aplique su propio DEFAULT/NULL -- nunca se
+     * fuerza un valor a mano, solo se evita mandar '' donde no cabe.
+     */
+    private const NON_STRING_DB_TYPES = ['int', 'decimal', 'float', 'double', 'date', 'time', 'year', 'bit'];
+
+    private function normalizeEmptyNonStringFields(array $data): array
+    {
+        foreach ($this->schema->columns() as $column) {
+            if (($data[$column->name] ?? null) !== '') {
+                continue;
+            }
+
+            $type = strtolower($column->type);
+            $isNonString = false;
+            foreach (self::NON_STRING_DB_TYPES as $needle) {
+                if (str_contains($type, $needle)) {
+                    $isNonString = true;
+                    break;
+                }
+            }
+
+            if (!$isNonString) {
+                continue;
+            }
+
+            unset($data[$column->name]);
         }
 
         return $data;
