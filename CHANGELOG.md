@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.18] - 2026-08-27
+
+### Corregido
+- **Rompe compatibilidad de comportamiento (no de API):** el atributo HTML `required` (y el asterisco junto al label) de un campo se calculaba a partir de si la columna es `NOT NULL` en la base de datos, sin importar si el desarrollador la marco `'rules' => ['required']` o no. En una tabla legacy con muchas columnas `NOT NULL` que nunca fueron pensadas como obligatorias en el formulario (defaults de `''`/`0` puestos al crear la tabla, no por regla de negocio real), esto forzaba a llenar campos — incluyendo archivos (`inputType: 'file'`) — que la app nunca pidio como obligatorios. Ahora `required` refleja unicamente `column->rules` (lo que el desarrollador configuro explicitamente via `TableConfig`), igual que ya hacia la validacion del lado servidor (`Crud\Validator`) — antes habia una inconsistencia real entre lo que el navegador exigia y lo que el servidor exigia. Si una columna es `NOT NULL` sin default y el desarrollador no la marca `required`, un insert con ese campo vacio ahora puede fallar con un error de base de datos en vez de una validacion — revisar `docs/uso.md#columna-obligatoria-vs-not-null-en-la-bd` para decidir, por columna, si conviene marcarla `required` o ponerle un default en la BD.
+
 ## [0.1.17] - 2026-08-27
 
 ### Corregido

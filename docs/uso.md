@@ -93,7 +93,21 @@ Al crear o editar, AppyCrud verifica antes de guardar si ya existe otra fila con
 - Si la columna tiene un `UNIQUE` **real en la base de datos** (`Column::$uniqueInDb === true`, que es el caso cuando se autodetectó), AppyCrud además captura el error que la propia base de datos lanza si dos guardados chocan (`DuplicateValueException`, SQLSTATE `23000`) y lo convierte en el mismo mensaje de validación — la protección real está en el índice de la base de datos, el chequeo previo solo mejora el mensaje y evita el viaje redondo en el caso común.
 - Si `'unique' => true` se forzó a mano en una columna que **no** tiene un índice `UNIQUE` real en la base de datos, la validación sigue funcionando (mejor esfuerzo), pero **sin** esa red de seguridad — dos guardados simultáneos sí podrían colarse ambos. Si necesitas la garantía real, agrega el índice `UNIQUE` en la base de datos (AppyCrud lo detecta solo, ni siquiera hace falta declarar el override).
 
-**Indicador visual de campo obligatorio:** cualquier columna no-nullable (`NOT NULL` en la base de datos, o forzado con `'nullable' => false` en el override) muestra un asterisco rojo (`*`) junto a su label en el formulario, además del atributo HTML `required`. No aplica a checkboxes (`boolean`): un booleano no-nullable casi siempre trae un default y no tiene el mismo sentido de "hay que llenarlo" que el resto de los tipos. Si el formulario tiene al menos un campo obligatorio, aparece una leyenda ("* obligatorio") arriba de los campos.
+**Indicador visual de campo obligatorio:** cualquier columna con `'rules' => ['required']` en su `TableConfig` muestra un asterisco rojo (`*`) junto a su label en el formulario, además del atributo HTML `required`. No aplica a checkboxes (`boolean`): un booleano obligatorio no tiene el mismo sentido de "hay que llenarlo" que el resto de los tipos. Si el formulario tiene al menos un campo obligatorio, aparece una leyenda ("* obligatorio") arriba de los campos.
+
+### Columna obligatoria vs. `NOT NULL` en la BD
+
+`required` (y el asterisco) reflejan **solo** lo que se marca a mano en `rules`, nunca la nulabilidad real de la columna en la base de datos (hasta la v0.1.17 si lo hacían, ver [CHANGELOG](../CHANGELOG.md#0118---2026-08-27) — esto es un cambio de comportamiento). Una tabla legacy suele tener columnas `NOT NULL` que en realidad nunca fueron pensadas como obligatorias en el formulario (defaults de `''`/`0` puestos al crear la tabla), y forzar `required` automáticamente en todas esas columnas termina bloqueando al usuario con campos que el negocio nunca pidió llenar.
+
+Si una columna es `NOT NULL` **sin** default en la base de datos y no la marcás `required`, dejarla vacía al guardar ya no falla con un mensaje de validación claro — falla con el error crudo que lance la base de datos al hacer el `INSERT`/`UPDATE`. Para cada columna así, elegí una de las dos:
+
+```php
+// Opción A: sí es obligatoria de verdad -> declaralo
+'campo' => ['rules' => ['required']],
+
+// Opción B: no es obligatoria -> dale un default en la base de datos
+// ALTER TABLE tabla ALTER COLUMN campo SET DEFAULT '';
+```
 
 ## Tipos de campo
 

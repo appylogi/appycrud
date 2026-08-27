@@ -1313,7 +1313,7 @@ class TailwindRenderer
                 $hasFileField = true;
             }
 
-            if (!$column->nullable && FieldType::strategy($column->inputType ?? '') !== FieldType::STRATEGY_CHECKBOX) {
+            if (in_array('required', $column->rules, true) && FieldType::strategy($column->inputType ?? '') !== FieldType::STRATEGY_CHECKBOX) {
                 $hasRequiredField = true;
             }
 
@@ -1543,7 +1543,16 @@ class TailwindRenderer
         $name = $this->e($column->name);
         $baseClass = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm';
         $errorClass = $errorMessages !== [] ? ' border-red-400' : '';
-        $required = !$column->nullable ? ' required' : '';
+        // El atributo HTML5 'required' (y el asterisco) reflejan SOLO lo que el
+        // desarrollador marco explicitamente en 'rules' => ['required'] via
+        // TableConfig -- NUNCA la nulabilidad real de la columna en la BD.
+        // Antes se derivaba de $column->nullable: en una tabla legacy con
+        // muchas columnas NOT NULL que nunca fueron pensadas como obligatorias
+        // en el formulario (defaults de '' o 0 puestos por pereza al crear la
+        // tabla, no por regla de negocio), eso forzaba a llenar campos que el
+        // usuario nunca pidio que fueran obligatorios -- ver
+        // docs/uso.md#columna-obligatoria-vs-not-null-en-la-bd.
+        $required = in_array('required', $column->rules, true) ? ' required' : '';
         $optionSource = $column->reference !== null ? $options : $column->options;
 
         // auto-promover a buscable: cubre tanto dropdown/enum como
