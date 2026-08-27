@@ -301,7 +301,9 @@ class TailwindRenderer
                 . '</label>';
         }
 
-        $pageInfo = $t->t('list.page_of', ['page' => $page, 'lastPage' => $lastPage]);
+        $total = (int) ($pagination['total'] ?? 0);
+        $recordsWord = $t->t($total === 1 ? 'list.record_singular' : 'list.record_plural');
+        $pageInfo = $t->t('list.page_of', ['page' => $page, 'lastPage' => $lastPage, 'total' => $total, 'recordsWord' => $recordsWord]);
 
         return '<div class="mt-3 flex items-center justify-between flex-wrap gap-3 print:hidden">'
             . '<p class="text-sm text-gray-500">' . $this->e($pageInfo) . '</p>'

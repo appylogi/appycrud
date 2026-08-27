@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.27] - 2026-08-27
+
+### Agregado
+- El texto de paginacion ("Pagina X de Y") ahora incluye el total de registros de la tabla: "Pagina 1 de 5 (231 registros)". Antes no habia forma de ver cuantos registros tiene un modulo sin contarlos a mano o exportar. Usa singular/plural correcto ("1 registro" vs "2 registros").
+
 ## [0.1.26] - 2026-08-27
 
 ### Cambiado
