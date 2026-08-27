@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.20';
+    public const VERSION = '0.1.22';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -530,7 +530,7 @@ class AppyCrud
             return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
 
-        $post = $this->normalizeEmptyNonStringFields($post);
+        $post = $this->normalizeEmptyNonStringFields($post, true);
 
         if (($beforeInsert = $this->hook('beforeInsert')) !== null) {
             try {
@@ -586,7 +586,7 @@ class AppyCrud
             return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
 
-        $post = $this->normalizeEmptyNonStringFields($post);
+        $post = $this->normalizeEmptyNonStringFields($post, false);
 
         if (($beforeUpdate = $this->hook('beforeUpdate')) !== null) {
             try {
@@ -769,36 +769,93 @@ class AppyCrud
      * DEFAULT (solo lo aplica cuando la columna se omite del todo). Esto
      * rompia el guardado de formularios que dejan opcional un campo NOT
      * NULL sin marcarlo 'required' (ver docs/uso.md, seccion "Columna
-     * obligatoria vs. NOT NULL en la BD"). Aqui se quita esa columna de
-     * $data para que la BD aplique su propio DEFAULT/NULL -- nunca se
-     * fuerza un valor a mano, solo se evita mandar '' donde no cabe.
+     * obligatoria vs. NOT NULL en la BD").
+     *
+     * Que se hace con esa columna depende de lo que ya sabe el schema
+     * introspectado (nunca se toca la BD, ni se le pide al desarrollador
+     * que le agregue un DEFAULT):
+     *   - Si la columna SI tiene un DEFAULT real en la BD -> se quita de
+     *     $data para que la BD lo aplique (ese es el valor correcto,
+     *     definido por quien diseño la tabla).
+     *   - Si la columna acepta NULL -> se manda NULL explicito.
+     *   - Si es NOT NULL y no tiene DEFAULT (el caso mas comun en este
+     *     tipo de tablas legacy: columnas numericas "de detalle" que
+     *     nunca se pensaron realmente obligatorias) -> se manda un valor
+     *     neutro segun el tipo (0 para numericos) en vez de omitir la
+     *     columna, para que el INSERT no truene. Es el mismo resultado
+     *     que un formulario clasico (ej. GroceryCrud) siempre produjo
+     *     para estas columnas, sin requerir ninguna migracion de BD.
+     *
+     * $isInsert distingue dos situaciones muy distintas para una columna
+     * que no llego en $data (ni siquiera como '' -- por ejemplo una
+     * columna 'hidden' => true, que el navegador nunca envia porque el
+     * campo no se renderiza):
+     *   - En INSERT, "no llego" significa "nunca se le va a dar un valor
+     *     real" -> aplica la misma normalizacion que si hubiera llegado
+     *     vacia (si no, el INSERT omite la columna del todo y truena
+     *     igual que con '').
+     *   - En UPDATE, "no llego" casi siempre significa "este campo no es
+     *     parte de este formulario de edicion" (ej. editFields la excluye
+     *     a proposito) -> NO se toca, para no pisar con 0 un valor real
+     *     ya guardado que el usuario no tenia intencion de tocar.
      */
-    private const NON_STRING_DB_TYPES = ['int', 'decimal', 'float', 'double', 'date', 'time', 'year', 'bit'];
+    private const NUMERIC_DB_TYPES = ['int', 'decimal', 'float', 'double', 'bit'];
+    private const DATE_DB_TYPES = ['date', 'time', 'year'];
 
-    private function normalizeEmptyNonStringFields(array $data): array
+    private function normalizeEmptyNonStringFields(array $data, bool $isInsert): array
     {
         foreach ($this->schema->columns() as $column) {
-            if (($data[$column->name] ?? null) !== '') {
+            $present = array_key_exists($column->name, $data);
+
+            if ($present && $data[$column->name] !== '') {
+                continue;
+            }
+
+            if (!$present && !$isInsert) {
+                continue;
+            }
+
+            if (!$present && ($column->isPrimaryKey || $column->isAutoIncrement || FieldType::isFile($column->inputType ?? ''))) {
                 continue;
             }
 
             $type = strtolower($column->type);
-            $isNonString = false;
-            foreach (self::NON_STRING_DB_TYPES as $needle) {
-                if (str_contains($type, $needle)) {
-                    $isNonString = true;
-                    break;
-                }
-            }
+            $isNumeric = self::typeMatches($type, self::NUMERIC_DB_TYPES);
+            $isDate = self::typeMatches($type, self::DATE_DB_TYPES);
 
-            if (!$isNonString) {
+            if (!$isNumeric && !$isDate) {
                 continue;
             }
 
-            unset($data[$column->name]);
+            if ($column->default !== null) {
+                unset($data[$column->name]);
+            } elseif ($column->nullable) {
+                $data[$column->name] = null;
+            } elseif ($isNumeric) {
+                $data[$column->name] = 0;
+            } else {
+                // Fecha/hora NOT NULL sin default y sin valor -- no hay un
+                // "cero" seguro y universal para fechas (varia por motor/
+                // configuracion), asi que se deja el comportamiento previo:
+                // se omite y se deja que la BD decida (puede seguir
+                // fallando en este caso especifico, no se ha visto en la
+                // practica todavia).
+                unset($data[$column->name]);
+            }
         }
 
         return $data;
+    }
+
+    private static function typeMatches(string $type, array $needles): bool
+    {
+        foreach ($needles as $needle) {
+            if (str_contains($type, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

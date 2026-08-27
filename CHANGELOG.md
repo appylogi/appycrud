@@ -2,6 +2,16 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.22] - 2026-08-27
+
+### Corregido
+- 0.1.21 solo normalizaba una columna cuando llegaba en el payload como `''` explicito -- una columna `hidden => true` (u otra que el navegador simplemente nunca envia, como un checkbox sin marcar) no llega ni siquiera como `''`, llega **ausente**, y seguia rompiendo el INSERT con `Field '...' doesn't have a default value`. Ahora, en INSERT, una columna numerica/fecha ausente se trata igual que si hubiera llegado vacia. En UPDATE se mantiene el comportamiento anterior (ausente = "no toques este campo", nunca se sobreescribe con `0`), para no pisar datos ya guardados que el formulario de edicion no incluye a proposito.
+
+## [0.1.21] - 2026-08-27
+
+### Corregido
+- 0.1.19 evitaba el 500 en columnas numericas/fecha opcionales dejadas en blanco quitandolas del payload para que la BD aplicara su `DEFAULT` -- pero si la columna es `NOT NULL` **sin** `DEFAULT` (comun en tablas legacy con columnas de "detalle" que nunca fueron pensadas como obligatorias), quitarla del payload sigue rompiendo el INSERT (`Field '...' doesn't have a default value`), esta vez porque la columna se omite del todo. Ahora, cuando la columna no tiene `DEFAULT` real y no acepta `NULL`, se manda un valor neutro segun el tipo (`0` para columnas numericas) en vez de omitirla -- el mismo resultado que un formulario clasico (ej. GroceryCrud) siempre produjo, **sin requerir ninguna migracion de esquema**. Las columnas que si tienen `DEFAULT` en la BD siguen usandolo (no se sobreescriben con `0`).
+
 ## [0.1.20] - 2026-08-27
 
 ### Corregido
