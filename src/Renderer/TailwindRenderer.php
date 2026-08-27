@@ -205,7 +205,7 @@ class TailwindRenderer
             : $bulkHeaderCell . $dataHeaders . $actionsHeaderCell;
 
         $filterHeaderRow = ($features['filters'] ?? true)
-            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields, $referenceOptions)
+            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields, $referenceOptions, $actionsOnLeft)
             : '';
 
         $bodyRows = '';
@@ -323,15 +323,17 @@ class TailwindRenderer
      * @param string[]|null $filterableFields
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions
      */
-    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields, array $referenceOptions = []): string
+    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields, array $referenceOptions = [], bool $actionsOnLeft = false): string
     {
-        $cells = $bulkDeleteEnabled ? '<th class="px-4 py-1.5"></th>' : '';
+        $bulkCell = $bulkDeleteEnabled ? '<th class="px-4 py-1.5"></th>' : '';
+        $actionsPlaceholder = '<th class="px-4 py-1.5 print:hidden"></th>';
+        $dataCells = '';
 
         foreach ($columns as $column) {
             $filterable = $filterableFields === null || in_array($column->name, $filterableFields, true);
 
             if (!$filterable) {
-                $cells .= '<th class="px-4 py-1.5"></th>';
+                $dataCells .= '<th class="px-4 py-1.5"></th>';
                 continue;
             }
 
@@ -360,10 +362,12 @@ class TailwindRenderer
                 $input = '<input type="text" form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" oninput="' . $onEvent . '" placeholder="' . $this->e($column->label) . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">';
             }
 
-            $cells .= '<th class="px-4 py-1.5 font-normal">' . $input . '</th>';
+            $dataCells .= '<th class="px-4 py-1.5 font-normal">' . $input . '</th>';
         }
 
-        $cells .= '<th class="px-4 py-1.5 print:hidden"></th>';
+        $cells = $actionsOnLeft
+            ? $bulkCell . $actionsPlaceholder . $dataCells
+            : $bulkCell . $dataCells . $actionsPlaceholder;
 
         return '<tr class="bg-gray-50 border-t border-gray-100">' . $cells . '</tr>';
     }

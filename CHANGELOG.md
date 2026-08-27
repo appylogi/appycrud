@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.16] - 2026-08-27
+
+### Corregido
+- `actionsPosition => LEFT` (0.1.15) descuadraba la tabla cuando `filters` estaba activo: la fila de filtros por columna siempre ponia su celda vacia de "acciones" al final, sin importar la posicion real de esa columna en el encabezado, desalineando cada columna una posicion. `renderColumnFilterRow()` ahora respeta `actionsPosition` igual que el encabezado y las filas de datos.
+
 ## [0.1.15] - 2026-08-27
 
 ### Agregado
