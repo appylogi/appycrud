@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.26] - 2026-08-27
+
+### Cambiado
+- Default de `perPage` de 20 a **50**, y `perPageOptions` de `[10, 20, 50, 100]` a **`[10, 20, 50, 100, 200, 500]`**. Sigue siendo el default de fallback: cualquier tabla que ya fije `perPage`/`perPageOptions` propio (via `TableConfig` o la opcion del constructor) no se ve afectada.
+
 ## [0.1.25] - 2026-08-27
 
 ### Mejorado

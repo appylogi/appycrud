@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.25';
+    public const VERSION = '0.1.26';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -189,9 +189,9 @@ class AppyCrud
         $this->filterableFields = $options['filterableFields'] ?? null;
         // Precedencia: lo que fijo esta tabla en su TableConfig > la opcion
         // 'perPage'/'perPageOptions' del array de opciones del constructor >
-        // default final (20 / [10, 20, 50, 100]) si nadie configuro nada.
-        $this->perPage = max(1, $config?->perPage() ?? (int) ($options['perPage'] ?? 20));
-        $this->perPageOptions = $config?->perPageOptions() ?? ($options['perPageOptions'] ?? [10, 20, 50, 100]);
+        // default final (50 / [10, 20, 50, 100, 200, 500]) si nadie configuro nada.
+        $this->perPage = max(1, $config?->perPage() ?? (int) ($options['perPage'] ?? 50));
+        $this->perPageOptions = $config?->perPageOptions() ?? ($options['perPageOptions'] ?? [10, 20, 50, 100, 200, 500]);
 
         $hasFileColumn = false;
         foreach ($this->schema->columns() as $column) {
