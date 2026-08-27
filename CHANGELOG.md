@@ -2,6 +2,12 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.20] - 2026-08-27
+
+### Corregido
+- Un error del driver de BD al hacer INSERT/UPDATE (violacion de constraint que la app no valida, tipo de dato incompatible, etc.) no se capturaba y quedaba como excepcion sin manejar: con `display_errors=Off` en produccion, el usuario veia una pantalla en blanco con HTTP 500 sin ningun mensaje. `handleStore()`/`handleUpdate()` ahora capturan cualquier `\Throwable` del INSERT/UPDATE, lo registran con `error_log()` y vuelven a mostrar el formulario con el mensaje real del driver (`"No se pudo guardar el registro: ..."`) — igual que hacia GroceryCrud. Es una herramienta interna de administracion, por eso se opta por el mensaje real del driver en vez de uno generico.
+- Aunque el backend ya devolviera el formulario con el error (caso anterior, o una validacion 422), el JS del lado cliente (`appycrudSubmitForm()`) solo mostraba esa respuesta cuando el status era *exactamente* `422` — cualquier otro codigo (como el `500` del punto anterior) caia al `else` y hacia `window.location.reload()`, descartando el mensaje sin dejar rastro. Ahora se muestra el HTML devuelto para cualquier respuesta que no sea 2xx, y un fallo de red real (sin respuesta del servidor) muestra un aviso explicito en vez de fallar en silencio.
+
 ## [0.1.19] - 2026-08-27
 
 ### Corregido

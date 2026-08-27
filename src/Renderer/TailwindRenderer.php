@@ -1020,12 +1020,23 @@ class TailwindRenderer
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
             })
                 .then(function (response) {
-                    if (response.status === 422) {
+                    // Cualquier respuesta que no sea 2xx (422 de validacion, 500 de
+                    // error de BD capturado, etc.) trae el formulario ya renderizado
+                    // de vuelta con el mensaje de error -- se muestra ese HTML en vez
+                    // de recargar la pagina entera, que perdia el mensaje sin dejar
+                    // rastro de que algo fallo (ver AppyCrud::databaseErrorMessage()).
+                    if (!response.ok) {
                         return response.text().then(function (html) {
                             document.getElementById('appycrud-dialog-content').innerHTML = html;
                         });
                     }
                     window.location.reload();
+                })
+                .catch(function () {
+                    // Fallo de red real (sin respuesta del servidor) -- no hay HTML
+                    // de formulario para mostrar, asi que se avisa explicitamente en
+                    // vez de quedar en silencio.
+                    alert('No se pudo conectar con el servidor. Intenta de nuevo.');
                 });
             return false;
         }

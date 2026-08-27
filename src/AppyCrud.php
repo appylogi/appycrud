@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.19';
+    public const VERSION = '0.1.20';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -549,6 +549,9 @@ class AppyCrud
             http_response_code(422);
             $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
             return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
+        } catch (\Throwable $e) {
+            http_response_code(500);
+            return $this->renderer->renderForm($this->schema, $post, $baseUrl, false, $this->referenceOptions([$post]), [], $this->csrfToken(), $this->databaseErrorMessage($e), $this->insertFields, $this->manyToManyFormData(null, $m2mSelections));
         }
         $this->syncManyToMany($id, $m2mSelections);
 
@@ -601,6 +604,9 @@ class AppyCrud
             http_response_code(422);
             $errors = $e->column !== '' ? [$e->column => [$e->getMessage()]] : [];
             return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), $errors, $this->csrfToken(), $e->column === '' ? $e->getMessage() : '', $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
+        } catch (\Throwable $e) {
+            http_response_code(500);
+            return $this->renderer->renderForm($this->schema, $values, $baseUrl, true, $this->referenceOptions([$values]), [], $this->csrfToken(), $this->databaseErrorMessage($e), $this->editFields, $this->manyToManyFormData($id, $m2mSelections));
         }
         $this->syncManyToMany($id, $m2mSelections);
 
@@ -609,6 +615,26 @@ class AppyCrud
         }
 
         $this->redirect($baseUrl);
+    }
+
+    /**
+     * Un INSERT/UPDATE puede fallar por razones que la validacion de la app
+     * no puede anticipar (restriccion de BD que el schema no modela, columna
+     * NOT NULL sin default, tipo de dato incompatible, etc.). Sin este catch,
+     * la excepcion se escapaba sin manejar -- con display_errors=Off (como
+     * suele estar en produccion) el usuario solo veia una pantalla en blanco
+     * con HTTP 500, sin ninguna pista de que fallo ni por que (a diferencia
+     * de GroceryCrud, que mostraba el error real). Esta es una herramienta
+     * interna de administracion, no una app publica, asi que se opta por
+     * mostrar el mensaje real del driver de BD (ayuda a diagnosticar en el
+     * momento) en vez de un mensaje generico -- siempre se registra tambien
+     * via error_log() para quedar en el log del servidor.
+     */
+    private function databaseErrorMessage(\Throwable $e): string
+    {
+        error_log('AppyCrud: error al guardar en ' . $this->schema->table . ': ' . $e->getMessage());
+
+        return 'No se pudo guardar el registro: ' . $e->getMessage();
     }
 
     private function handleDelete(mixed $id, string $baseUrl, array $post = []): string
