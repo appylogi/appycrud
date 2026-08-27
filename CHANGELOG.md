@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.17] - 2026-08-27
+
+### Corregido
+- Presionar Enter en un filtro por columna (`renderColumnFilterRow`) o en el valor de una fila del filtro avanzado podia disparar el envio nativo del `<form>` (navegacion de pagina completa) en vez de aplicar el filtro por AJAX, en navegadores donde el envio implicito por Enter de un control asociado a distancia (atributo `form="..."`, ya que esos inputs viven en la tabla, no dentro del `<form>` fisico) no respeta de forma confiable el `event.preventDefault()` del `onsubmit`. Se agrega `appycrudFilterKeydown()`, que intercepta Enter directamente en cada input (sin depender del envio nativo) y aplica el filtro de inmediato.
+
 ## [0.1.16] - 2026-08-27
 
 ### Corregido

@@ -359,7 +359,7 @@ class TailwindRenderer
                     . '<option value="0"' . ($current === '0' ? ' selected' : '') . '>No</option>'
                     . '</select>';
             } else {
-                $input = '<input type="text" form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" oninput="' . $onEvent . '" placeholder="' . $this->e($column->label) . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">';
+                $input = '<input type="text" form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" value="' . $this->e($current) . '" oninput="' . $onEvent . '" onkeydown="appycrudFilterKeydown(event)" placeholder="' . $this->e($column->label) . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs">';
             }
 
             $dataCells .= '<th class="px-4 py-1.5 font-normal">' . $input . '</th>';
@@ -642,7 +642,7 @@ class TailwindRenderer
         ));
 
         $searchField = $searchEnabled
-            ? '<input type="text" name="q" value="' . $this->e($search) . '" placeholder="' . $this->e($t->t('list.search_placeholder')) . '" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[10rem]">'
+            ? '<input type="text" name="q" value="' . $this->e($search) . '" placeholder="' . $this->e($t->t('list.search_placeholder')) . '" onkeydown="appycrudFilterKeydown(event)" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[10rem]">'
             : '';
 
         $orderHidden = $orderBy !== ''
@@ -777,7 +777,7 @@ class TailwindRenderer
         $valueHidden = in_array($row['op'], ['is_null', 'is_not_null'], true) ? ' style="display:none"' : '';
         $valueControl = ($fieldColumn !== null && $fieldColumn->reference !== null)
             ? $this->renderAdvancedFilterValueSelect((string) $row['value'], $referenceOptions[$fieldColumn->name] ?? [], $valueHidden)
-            : '<input type="text" name="af_value[]" value="' . $this->e((string) $row['value']) . '" class="border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 min-w-[9rem]"' . $valueHidden . '>';
+            : '<input type="text" name="af_value[]" value="' . $this->e((string) $row['value']) . '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();appycrudApplyAdvancedFilter();}" class="border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 min-w-[9rem]"' . $valueHidden . '>';
 
         return '<div class="flex flex-wrap items-center gap-2 appycrud-af-row">'
             . $connSelect . $fieldSelect . $opSelect . $valueControl
@@ -1049,6 +1049,21 @@ class TailwindRenderer
             clearTimeout(appycrudFilterTimer);
             appycrudApplyFilters(form);
             return false;
+        }
+
+        // Los inputs de filtro por columna (renderColumnFilterRow) NO son
+        // descendientes reales del <form> -- viven en la tabla, que se
+        // reemplaza entera por AJAX, y se asocian al form solo por el
+        // atributo form="appycrud-filter-form" (necesario para que
+        // FormData(form) los incluya). Ese tipo de asociacion "a distancia"
+        // tiene soporte inconsistente entre navegadores para el envio
+        // implicito por Enter -- en vez de confiar en eso, Enter se
+        // intercepta aqui directamente y se aplica el filtro ya mismo (sin
+        // esperar el debounce de 500ms), sin pasar por la navegacion nativa.
+        function appycrudFilterKeydown(event) {
+            if (event.key !== 'Enter') { return; }
+            event.preventDefault();
+            appycrudSubmitFilters(event, document.getElementById('appycrud-filter-form'));
         }
 
         function appycrudApplyFilters(form) {
