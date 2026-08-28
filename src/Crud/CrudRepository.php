@@ -92,16 +92,27 @@ class CrudRepository
         $table = $this->connection->quoteIdentifier($this->schema->table);
 
         $orderSql = '';
-        if ($orderBy !== '' && $this->schema->column($orderBy) !== null) {
+        $orderParams = [];
+        $orderColumn = $orderBy !== '' ? $this->schema->column($orderBy) : null;
+        if ($orderColumn !== null) {
             $dir = strtoupper($orderDir) === 'DESC' ? 'DESC' : 'ASC';
-            $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($orderBy) . ' ' . $dir;
+
+            if ($orderColumn->reference !== null) {
+                // Ordenar una FK por su id crudo no dice nada al usuario (ej.
+                // "Ciudad Origen" saldria por id, no alfabetico) -- se ordena
+                // por el mismo label que ya se muestra en la columna.
+                [$orderExpr, $orderParams] = $this->buildReferenceOrderExpression($orderColumn);
+                $orderSql = "ORDER BY {$orderExpr} {$dir}";
+            } else {
+                $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($orderBy) . ' ' . $dir;
+            }
         }
 
         [$whereSql, $params] = $this->buildWhereClause($filters, $search, $advancedFilters);
 
         $sql = "SELECT * FROM {$table} {$whereSql} {$orderSql} LIMIT :limit OFFSET :offset";
         $stmt = $this->connection->pdo()->prepare($sql);
-        foreach ($params as $key => $value) {
+        foreach ($params + $orderParams as $key => $value) {
             $stmt->bindValue($key, $value);
         }
         $stmt->bindValue(':limit', $perPage, \PDO::PARAM_INT);
@@ -641,6 +652,39 @@ class CrudRepository
         $fragment = "{$quotedColumn} IN (SELECT {$valueQ} FROM {$tableQ} {$whereSql})";
 
         return [$fragment, $labelParams + $conditionParams];
+    }
+
+    /**
+     * Expresion SQL para ordenar una columna de referencia (FK) por su label,
+     * no por el id crudo -- sin esto, ordenar "Ciudad Origen" ordenaba por el
+     * id numerico de tblciudades (sin sentido para el usuario). Subquery
+     * correlacionada (una lectura indexada por PK por fila del resultado),
+     * respetando el mismo label/conditions que referenceOptions().
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function buildReferenceOrderExpression(Column $column): array
+    {
+        $refTable = $column->reference['table'];
+        $valueColumn = $column->reference['column'];
+        $labelColumn = $column->reference['label'] ?? $this->guessLabelColumn($refTable, $valueColumn);
+        $conditions = $column->reference['conditions'] ?? [];
+
+        $tableQ = $this->connection->quoteIdentifier($refTable);
+        $valueQ = $this->connection->quoteIdentifier($valueColumn);
+        $paramPrefix = 'orderref_' . $column->name;
+        [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, $paramPrefix . '_lbl');
+        [$conditionSql, $conditionParams] = $this->conditionsToSql($conditions, $paramPrefix);
+
+        $outerTableQ = $this->connection->quoteIdentifier($this->schema->table);
+        $quotedColumn = $this->connection->quoteIdentifier($column->name);
+
+        $whereParts = $conditionSql;
+        $whereParts[] = "{$valueQ} = {$outerTableQ}.{$quotedColumn}";
+        $whereSql = 'WHERE ' . implode(' AND ', $whereParts);
+
+        $expr = "(SELECT {$labelExpr} FROM {$tableQ} {$whereSql})";
+
+        return [$expr, $labelParams + $conditionParams];
     }
 
     public function referenceOptions(Column $column, int $limit = 500, array $mustIncludeValues = []): array

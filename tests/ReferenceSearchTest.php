@@ -36,6 +36,7 @@ final class ReferenceSearchTest extends TestCase
         )');
         $this->exec('INSERT INTO trayectos (ciudad_origen, ciudad_destino, dias_entregas) VALUES (1, 2, 3)');
         $this->exec('INSERT INTO trayectos (ciudad_origen, ciudad_destino, dias_entregas) VALUES (2, 3, 2)');
+        $this->exec('INSERT INTO trayectos (ciudad_origen, ciudad_destino, dias_entregas) VALUES (3, 1, 1)');
     }
 
     private function crud(): AppyCrud
@@ -59,7 +60,8 @@ final class ReferenceSearchTest extends TestCase
         // Los catalogos completos (dropdowns de filtro, filtro avanzado)
         // listan todas las ciudades siempre -- lo que importa es cuantas
         // FILAS trae el listado, no si "Medellin" aparece en algun lado del HTML.
-        $this->assertStringContainsString('(1 registro)', $html, 'solo la fila Bogota->Pasto debe matchear "Bogota"');
+        // Matchea la fila 1 (origen=Bogota) y la fila 3 (destino=Bogota).
+        $this->assertStringContainsString('(2 registros)', $html, 'las filas con Bogota como origen o destino deben matchear');
         $this->assertStringContainsString('>Pasto</td>', $html);
     }
 
@@ -67,7 +69,8 @@ final class ReferenceSearchTest extends TestCase
     {
         $html = $this->crud()->handle('/trayectos', ['q' => 'Medellin'], []);
 
-        $this->assertStringContainsString('(1 registro)', $html, 'solo la fila Pasto->Medellin debe matchear "Medellin"');
+        // Matchea la fila 2 (destino=Medellin) y la fila 3 (origen=Medellin).
+        $this->assertStringContainsString('(2 registros)', $html, 'las filas con Medellin como origen o destino deben matchear');
         $this->assertStringContainsString('>Pasto</td>', $html);
     }
 
@@ -76,5 +79,27 @@ final class ReferenceSearchTest extends TestCase
         $html = $this->crud()->handle('/trayectos', ['q' => 'Cali'], []);
 
         $this->assertStringContainsString('(0 registros)', $html);
+    }
+
+    public function test_ordenar_por_columna_de_referencia_ordena_por_el_label_no_por_el_id(): void
+    {
+        // pkid 1: ciudad_origen=1 (Bogota) -- pkid 2: ciudad_origen=2 (Pasto)
+        // -- pkid 3: ciudad_origen=3 (Medellin). Por id ascendente saldria
+        // pkid 1,2,3 (Bogota, Pasto, Medellin); alfabeticamente por nombre
+        // (lo esperado) es pkid 1,3,2 (Bogota, Medellin, Pasto). Se ubica
+        // cada fila por el link de "editar" de su pkid (unico en el HTML),
+        // no por el texto de la ciudad (que se repite como origen/destino
+        // entre varias filas y no sirve como marcador de posicion).
+        $html = $this->crud()->handle('/trayectos', ['orderBy' => 'ciudad_origen', 'orderDir' => 'ASC'], []);
+
+        $posFila1 = strpos($html, 'action=edit&id=1&ajax=1');
+        $posFila3 = strpos($html, 'action=edit&id=3&ajax=1');
+        $posFila2 = strpos($html, 'action=edit&id=2&ajax=1');
+
+        $this->assertNotFalse($posFila1);
+        $this->assertNotFalse($posFila3);
+        $this->assertNotFalse($posFila2);
+        $this->assertLessThan($posFila3, $posFila1, 'fila con origen Bogota debe salir antes que la de origen Medellin (alfabetico, no por id)');
+        $this->assertLessThan($posFila2, $posFila3, 'fila con origen Medellin debe salir antes que la de origen Pasto (alfabetico, no por id)');
     }
 }

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.32] - 2026-08-28
+
+### Corregido
+- Ordenar por una columna de referencia (FK) -- ej. click en el encabezado "Ciudad Origen" de Trayectos -- ordenaba por el id numerico crudo de la relacion, no por el texto visible en la columna (mismo defecto de fondo que la busqueda de 0.1.31, ahora en el ORDER BY). Afecta a 14 controladores que fijan su `defaultOrderBy` en una columna de referencia (`cliente`, `ciudad_origen`, `ciudad_principal`, `usuario`...), incluyendo Trayectos, que abria "ordenado" de forma arbitraria por defecto. `CrudRepository::paginate()` ahora ordena las columnas de referencia por una subconsulta correlacionada que resuelve el mismo label (y `conditions`) usado para mostrarlas -- una lectura indexada por PK por fila, sin impacto medible en las tablas reales de appylogi (la mas grande con columnas de referencia, `tblacuerdo_consolidado`, tiene ~4.100 filas). Verificado en vivo contra `tbltrayectos` (1.545 filas, ~137ms, orden alfabetico correcto) en appdev y produccion. Ver `tests/ReferenceSearchTest.php`.
+
 ## [0.1.31] - 2026-08-28
 
 ### Corregido
