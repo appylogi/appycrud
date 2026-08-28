@@ -314,7 +314,7 @@ class TableIntrospector
         $columns = $stmt->fetchAll();
 
         if ($columns === []) {
-            throw new RuntimeException("AppyCrud: la tabla '{$table}' no existe o no tiene columnas visibles.");
+            throw new TableNotFoundException("AppyCrud: la tabla '{$table}' no existe o no tiene columnas visibles.");
         }
 
         $rows = [];

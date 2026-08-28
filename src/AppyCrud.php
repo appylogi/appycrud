@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.29';
+    public const VERSION = '0.1.30';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -263,39 +263,59 @@ class AppyCrud
 
         $action = $get['action'] ?? 'list';
 
-        if (in_array($action, ['create', 'store'], true) && !($this->features['create'] ?? true)) {
-            $this->redirect($baseUrl);
-        }
-
-        if (in_array($action, ['edit', 'update'], true) && !($this->features['edit'] ?? true)) {
-            $this->redirect($baseUrl);
-        }
-
-        foreach ($this->rowActions as $rowAction) {
-            if ($rowAction->name === $action) {
-                if ($rowAction->method === 'post' && !$this->verifyCsrf($post)) {
-                    $this->redirect($baseUrl);
-                }
-
-                return ($rowAction->handler)($get['id'] ?? null, $get, $post);
+        try {
+            if (in_array($action, ['create', 'store'], true) && !($this->features['create'] ?? true)) {
+                $this->redirect($baseUrl);
             }
-        }
 
-        return match ($action) {
-            'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null), $this->uploadUrlPrefix),
-            'edit' => $this->handleEdit($get, $baseUrl),
-            'view' => $this->handleView($get, $baseUrl),
-            'clone' => $this->handleClone($get, $baseUrl),
-            'store' => $this->handleStore($post, $baseUrl, $files),
-            'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl, $files),
-            'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl, $post),
-            'bulkDelete' => $this->handleBulkDelete($post, $baseUrl),
-            'export' => $this->handleExport($get),
-            'print' => $this->handlePrint($get['id'] ?? ''),
-            'reference_search' => $this->handleReferenceSearch($get),
-            default => $isAjax ? $this->renderListBody($get, $baseUrl) : $this->renderList($get, $baseUrl),
-        };
+            if (in_array($action, ['edit', 'update'], true) && !($this->features['edit'] ?? true)) {
+                $this->redirect($baseUrl);
+            }
+
+            foreach ($this->rowActions as $rowAction) {
+                if ($rowAction->name === $action) {
+                    if ($rowAction->method === 'post' && !$this->verifyCsrf($post)) {
+                        $this->redirect($baseUrl);
+                    }
+
+                    return ($rowAction->handler)($get['id'] ?? null, $get, $post);
+                }
+            }
+
+            return match ($action) {
+                'create' => $this->renderer->renderForm($this->schema, [], $baseUrl, false, $this->referenceOptions(), [], $this->csrfToken(), '', $this->insertFields, $this->manyToManyFormData(null), $this->uploadUrlPrefix),
+                'edit' => $this->handleEdit($get, $baseUrl),
+                'view' => $this->handleView($get, $baseUrl),
+                'clone' => $this->handleClone($get, $baseUrl),
+                'store' => $this->handleStore($post, $baseUrl, $files),
+                'update' => $this->handleUpdate($get['id'] ?? '', $post, $baseUrl, $files),
+                'delete' => $this->handleDelete($get['id'] ?? '', $baseUrl, $post),
+                'bulkDelete' => $this->handleBulkDelete($post, $baseUrl),
+                'export' => $this->handleExport($get),
+                'print' => $this->handlePrint($get['id'] ?? ''),
+                'reference_search' => $this->handleReferenceSearch($get),
+                default => $isAjax ? $this->renderListBody($get, $baseUrl) : $this->renderList($get, $baseUrl),
+            };
+        } catch (Crud\RedirectException $e) {
+            // Unico lugar que realmente hace header()+exit() -- ver
+            // Crud\RedirectException para el por que de no hacerlo directo en
+            // redirect(). Comportamiento identico al anterior en produccion.
+            header('Location: ' . $e->url);
+
+            if (self::$exitOnRedirect) {
+                exit;
+            }
+
+            return '';
+        }
     }
+
+    /**
+     * SOLO para tests automatizados: un exit() real mataria el proceso del
+     * test runner. Nunca cambiar esto en codigo de produccion -- el default
+     * (true) preserva el comportamiento exacto de siempre.
+     */
+    public static bool $exitOnRedirect = true;
 
     /**
      * $this->renderer/$this->schema nunca se terminaron de armar (el
@@ -827,12 +847,13 @@ class AppyCrud
      *     definido por quien diseño la tabla).
      *   - Si la columna acepta NULL -> se manda NULL explicito.
      *   - Si es NOT NULL y no tiene DEFAULT (el caso mas comun en este
-     *     tipo de tablas legacy: columnas numericas "de detalle" que
+     *     tipo de tablas legacy: columnas numericas/texto "de detalle" que
      *     nunca se pensaron realmente obligatorias) -> se manda un valor
-     *     neutro segun el tipo (0 para numericos) en vez de omitir la
-     *     columna, para que el INSERT no truene. Es el mismo resultado
-     *     que un formulario clasico (ej. GroceryCrud) siempre produjo
-     *     para estas columnas, sin requerir ninguna migracion de BD.
+     *     neutro segun el tipo (0 para numericos, '' para texto/varchar) en
+     *     vez de omitir la columna, para que el INSERT no truene. Es el
+     *     mismo resultado que un formulario clasico (ej. GroceryCrud)
+     *     siempre produjo para estas columnas, sin requerir ninguna
+     *     migracion de BD.
      *
      * $isInsert distingue dos situaciones muy distintas para una columna
      * que no llego en $data (ni siquiera como '' -- por ejemplo una
@@ -871,7 +892,11 @@ class AppyCrud
             $isNumeric = self::typeMatches($type, self::NUMERIC_DB_TYPES);
             $isDate = self::typeMatches($type, self::DATE_DB_TYPES);
 
-            if (!$isNumeric && !$isDate) {
+            // Una columna de texto/varchar presente con '' ya esta en su
+            // valor final correcto -- '' siempre es valido ahi, a diferencia
+            // de un numero o una fecha. Solo el caso AUSENTE (mas abajo)
+            // necesita normalizarse tambien para texto.
+            if (!$isNumeric && !$isDate && $present) {
                 continue;
             }
 
@@ -881,7 +906,7 @@ class AppyCrud
                 $data[$column->name] = null;
             } elseif ($isNumeric) {
                 $data[$column->name] = 0;
-            } else {
+            } elseif ($isDate) {
                 // Fecha/hora NOT NULL sin default y sin valor -- no hay un
                 // "cero" seguro y universal para fechas (varia por motor/
                 // configuracion), asi que se deja el comportamiento previo:
@@ -889,6 +914,16 @@ class AppyCrud
                 // fallando en este caso especifico, no se ha visto en la
                 // practica todavia).
                 unset($data[$column->name]);
+            } else {
+                // Texto/varchar NOT NULL sin default, AUSENTE del post del
+                // todo (nunca llego, ni como '' -- ej. una columna 'hidden'
+                // o fuera de insertFields). A diferencia de un numero/fecha,
+                // '' SI es un valor neutro universalmente valido para texto,
+                // asi que se manda en vez de omitir la columna. Encontrado en
+                // vivo: Noticias.php ('descripcion' mediumtext NOT NULL sin
+                // default) rompia igual que los casos numericos ya
+                // corregidos, solo que para texto.
+                $data[$column->name] = '';
             }
         }
 
@@ -1093,9 +1128,9 @@ class AppyCrud
         exit;
     }
 
+    /** @see Crud\RedirectException -- el header()+exit() real pasa en handle(), no aqui. */
     private function redirect(string $baseUrl): never
     {
-        header('Location: ' . $baseUrl);
-        exit;
+        throw new Crud\RedirectException($baseUrl);
     }
 }

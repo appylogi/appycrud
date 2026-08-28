@@ -3,3 +3,4 @@ composer.lock
 examples/demo.sqlite
 examples/uploads/
 *.sqlite
+.phpunit.result.cache

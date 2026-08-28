@@ -19,9 +19,20 @@
             "Appylogi\\AppyCrud\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Appylogi\\AppyCrud\\Tests\\": "tests/"
+        }
+    },
     "minimum-stability": "stable",
     "support": {
         "issues": "https://github.com/appylogi/appycrud/issues",
         "source": "https://github.com/appylogi/appycrud"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10"
+    },
+    "scripts": {
+        "test": "phpunit"
     }
 }

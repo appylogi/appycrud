@@ -2,6 +2,15 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.30] - 2026-08-28
+
+### Agregado
+- Primera suite de pruebas automatizadas (PHPUnit + SQLite en memoria, sin dependencias externas): `composer test` corre 20 tests que fijan el comportamiento de los fixes de esta y sesiones anteriores (required por rules no nullability, columnas NOT NULL sin default ausentes del payload, clonar con many-to-many, columnOrder, unique forzado por TableConfig, tabla inexistente, mensaje de error en guardado, defaults de paginacion, preview de imagenes). Ver `tests/`.
+
+### Corregido
+- `redirect()` llamaba `header()+exit()` directamente -- funciona bien en produccion (cada request HTTP es su propio proceso), pero hacia imposible escribir un test automatizado de un guardar/editar/borrar exitoso (el `exit()` mata el proceso del test runner). Ahora lanza una `Crud\RedirectException` interna que `handle()` (el unico punto de entrada publico) captura para hacer el `header()+exit()` real -- comportamiento identico en produccion, pero un test puede atrapar la excepcion y verificar la URL de destino sin que el proceso muera (ver `AppyCrud::$exitOnRedirect`, solo para tests).
+- `TableIntrospector::introspectSqlite()` seguia lanzando `RuntimeException` generica (no la nueva `TableNotFoundException` de 0.1.28) cuando la tabla no existe -- se detecto al escribir la suite de pruebas. Sin efecto en produccion (appylogi solo usa MySQL), pero rompia el fix de 0.1.28 para cualquier consumidor de AppyCrud sobre SQLite/pgsql.
+
 ## [0.1.29] - 2026-08-27
 
 ### Agregado
