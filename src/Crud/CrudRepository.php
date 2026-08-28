@@ -166,12 +166,21 @@ class CrudRepository
         if ($search !== '') {
             $searchConditions = [];
             foreach ($this->schema->visibleColumns() as $column) {
-                if ($column->reference !== null || FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
+                if (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
                     continue;
                 }
 
                 $quotedColumn = $this->connection->quoteIdentifier($column->name);
                 $paramKey = ':search_' . $column->name;
+
+                if ($column->reference !== null) {
+                    [$fragment, $refParams] = $this->buildReferenceSearchFragment($column, $quotedColumn, $paramKey);
+                    $searchConditions[] = $fragment;
+                    $params += $refParams;
+                    $params[$paramKey] = '%' . $search . '%';
+                    continue;
+                }
+
                 $searchConditions[] = "{$quotedColumn} LIKE {$paramKey}";
                 $params[$paramKey] = '%' . $search . '%';
             }
@@ -602,6 +611,38 @@ class CrudRepository
      * fuera de esas $limit se resolvia mal (se veia el valor crudo en vez del
      * nombre) en listado/vista/impresion/exportacion.
      */
+    /**
+     * Fragmento SQL para que la busqueda global tambien alcance una columna de
+     * referencia (FK): sin esto, buscar "Bogota" en un modulo cuyas columnas
+     * visibles son todas relaciones (ej. Trayectos: ciudad_origen/destino,
+     * tipo_trayecto...) no encontraba nada, porque el valor guardado es el id
+     * numerico, no el texto. Resuelve por subquery contra la tabla
+     * referenciada, filtrando por el mismo label armado en referenceOptions()
+     * y respetando las mismas 'conditions' (ej. solo ciudades activas).
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function buildReferenceSearchFragment(Column $column, string $quotedColumn, string $paramKey): array
+    {
+        $refTable = $column->reference['table'];
+        $valueColumn = $column->reference['column'];
+        $labelColumn = $column->reference['label'] ?? $this->guessLabelColumn($refTable, $valueColumn);
+        $conditions = $column->reference['conditions'] ?? [];
+
+        $tableQ = $this->connection->quoteIdentifier($refTable);
+        $valueQ = $this->connection->quoteIdentifier($valueColumn);
+        $paramPrefix = 'searchref_' . $column->name;
+        [$labelExpr, $labelParams] = $this->labelExpression($labelColumn, $paramPrefix . '_lbl');
+        [$conditionSql, $conditionParams] = $this->conditionsToSql($conditions, $paramPrefix);
+
+        $whereParts = $conditionSql;
+        $whereParts[] = "{$labelExpr} LIKE {$paramKey}";
+        $whereSql = 'WHERE ' . implode(' AND ', $whereParts);
+
+        $fragment = "{$quotedColumn} IN (SELECT {$valueQ} FROM {$tableQ} {$whereSql})";
+
+        return [$fragment, $labelParams + $conditionParams];
+    }
+
     public function referenceOptions(Column $column, int $limit = 500, array $mustIncludeValues = []): array
     {
         if ($column->reference === null) {

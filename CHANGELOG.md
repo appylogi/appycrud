@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.31] - 2026-08-28
+
+### Corregido
+- La busqueda global (`?q=`) ignoraba por completo las columnas de referencia (FK) -- reportado en el modulo Trayectos: buscar "Bogota - Pasto" no encontraba nada porque `ciudad_origen`/`ciudad_destino` son relaciones a `tblciudades` y el valor guardado es el id numerico, no el texto. Como casi todas las columnas visibles de Trayectos son relaciones, el buscador quedaba practicamente inutil. Afecta genericamente a cualquier modulo con columnas de referencia (la gran mayoria de los migrados). Ahora `CrudRepository::buildWhereClause()` tambien busca dentro de columnas de referencia via subquery contra la tabla relacionada, usando el mismo label (`reference.label`, soporta plantillas tipo `{nombre}-{departamento}`) y las mismas `conditions` (ej. solo ciudades activas) que ya se usaban para resolver el label en el listado. Ver `tests/ReferenceSearchTest.php`.
+
 ## [0.1.30] - 2026-08-28
 
 ### Agregado
