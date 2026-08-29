@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.32';
+    public const VERSION = '0.1.33';
 
     private TableSchema $schema;
     private CrudRepository $repository;

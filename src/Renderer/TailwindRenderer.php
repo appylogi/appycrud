@@ -84,7 +84,7 @@ class TailwindRenderer
             : '';
 
         return <<<HTML
-        <div class="max-w-6xl mx-auto p-6 appycrud-fade-in">
+        <div class="w-full px-6 py-6 appycrud-fade-in">
             {$updateBanner}
             <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <div>
@@ -205,7 +205,7 @@ class TailwindRenderer
             : $bulkHeaderCell . $dataHeaders . $actionsHeaderCell;
 
         $filterHeaderRow = ($features['filters'] ?? true)
-            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields, $referenceOptions, $actionsOnLeft)
+            ? $this->renderColumnFilterRow($columns, $activeFilters, $bulkDeleteEnabled, $filterableFields, $referenceOptions, $actionsOnLeft, $baseUrl)
             : '';
 
         $bodyRows = '';
@@ -325,7 +325,7 @@ class TailwindRenderer
      * @param string[]|null $filterableFields
      * @param array<string, array<int, array{value: mixed, label: string}>> $referenceOptions
      */
-    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields, array $referenceOptions = [], bool $actionsOnLeft = false): string
+    private function renderColumnFilterRow(array $columns, array $activeFilters, bool $bulkDeleteEnabled, ?array $filterableFields, array $referenceOptions = [], bool $actionsOnLeft = false, string $baseUrl = ''): string
     {
         $bulkCell = $bulkDeleteEnabled ? '<th class="px-4 py-1.5"></th>' : '';
         $actionsPlaceholder = '<th class="px-4 py-1.5 print:hidden"></th>';
@@ -344,16 +344,15 @@ class TailwindRenderer
 
             if ($column->reference !== null) {
                 // FK: el filtro compara por IGUALDAD contra el id real (ver
-                // CrudRepository::buildWhereClause), no por texto — un <input>
-                // de texto contra el nombre visible nunca matchea nada. El
-                // <select> deja elegir por label pero envia el id.
-                $input = '<select form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" onchange="' . $onEvent . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white">'
-                    . '<option value="">-</option>';
-                foreach ($referenceOptions[$column->name] ?? [] as $option) {
-                    $optionValue = (string) $option['value'];
-                    $input .= '<option value="' . $this->e($optionValue) . '"' . ($current === $optionValue ? ' selected' : '') . '>' . $this->e((string) $option['label']) . '</option>';
-                }
-                $input .= '</select>';
+                // CrudRepository::buildWhereClause), no por texto. Un <select>
+                // con las opciones precargadas (referenceOptions(), tope 500)
+                // se quedaba corto en catalogos grandes (ej. tblciudades,
+                // ~9300 filas) -- ciudades mas alla del top 500 alfabetico
+                // nunca aparecian, sin importar cuantas paginas/filas se
+                // pidieran mostrar. El mismo combobox buscable via AJAX que ya
+                // se usa en el formulario (busca en la BD, no en el
+                // navegador) resuelve esto sin ningun tope.
+                $input = $this->renderColumnFilterReferenceInput($column, $current, $referenceOptions[$column->name] ?? [], $baseUrl);
             } elseif (FieldType::strategy($column->inputType ?? '') === FieldType::STRATEGY_CHECKBOX) {
                 $input = '<select form="appycrud-filter-form" name="filter[' . $this->e($column->name) . ']" onchange="' . $onEvent . '" class="w-full border border-gray-300 rounded-md px-2 py-1 text-xs bg-white">'
                     . '<option value="">-</option>'
@@ -372,6 +371,36 @@ class TailwindRenderer
             : $bulkCell . $dataCells . $actionsPlaceholder;
 
         return '<tr class="bg-gray-50 border-t border-gray-100">' . $cells . '</tr>';
+    }
+
+    /**
+     * Combobox buscable via AJAX para el filtro por columna de una FK -- misma
+     * pieza que renderSearchableSelectAjax() (formulario), adaptada para vivir
+     * fuera del <form> real (usa el atributo form="appycrud-filter-form", como
+     * el resto de los inputs de esta fila) y para disparar el refresco del
+     * listado al elegir una opcion o al vaciar el campo (appycrudScheduleFilter),
+     * en vez de solo llenar un valor que se envia al hacer submit manual.
+     */
+    private function renderColumnFilterReferenceInput(Column $column, string $current, array $options, string $baseUrl): string
+    {
+        $currentLabel = '';
+        foreach ($options as $option) {
+            if ((string) $option['value'] === $current) {
+                $currentLabel = (string) $option['label'];
+                break;
+            }
+        }
+
+        $name = 'filter[' . $this->e($column->name) . ']';
+        $searchUrl = rtrim($baseUrl, '/') . '?action=reference_search&column=' . rawurlencode($column->name) . '&q=';
+        $placeholder = $this->e($this->translator->t('list.search_placeholder'));
+
+        return '<div class="appycrud-ref-search relative" data-url="' . $this->e($searchUrl) . '">'
+            . '<input type="text" class="appycrud-ref-search-input w-full border border-gray-300 rounded-md px-2 py-1 text-xs" placeholder="' . $placeholder . '" value="' . $this->e($currentLabel) . '" autocomplete="off"'
+            . ' oninput="appycrudRefSearchInput(this)" onfocus="appycrudRefSearchInput(this)">'
+            . '<input type="hidden" form="appycrud-filter-form" name="' . $name . '" value="' . $this->e($current) . '">'
+            . '<div class="appycrud-ref-search-dropdown hidden absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"></div>'
+            . '</div>';
     }
 
     /**
@@ -985,7 +1014,9 @@ class TailwindRenderer
             var term = input.value;
 
             if (term === '') {
-                wrap.querySelector('input[type="hidden"]').value = '';
+                var hiddenCleared = wrap.querySelector('input[type="hidden"]');
+                hiddenCleared.value = '';
+                appycrudRefSearchMaybeScheduleFilter(hiddenCleared);
             }
 
             document.querySelectorAll('.appycrud-ref-search-dropdown').forEach(function (d) {
@@ -1024,6 +1055,17 @@ class TailwindRenderer
             input.value = optionButton.dataset.label;
             hidden.value = optionButton.dataset.value;
             wrap.querySelector('.appycrud-ref-search-dropdown').classList.add('hidden');
+            appycrudRefSearchMaybeScheduleFilter(hidden);
+        }
+
+        // Este mismo combobox se reutiliza en el formulario (elegir y guardar
+        // con el boton) y en el filtro por columna del listado (elegir debe
+        // refrescar la tabla al toque, como el resto de los filtros). Se
+        // distingue por el nombre -- solo el filtro usa "filter[...]".
+        function appycrudRefSearchMaybeScheduleFilter(hiddenInput) {
+            if (hiddenInput.name.indexOf('filter[') === 0) {
+                appycrudScheduleFilter(document.getElementById('appycrud-filter-form'));
+            }
         }
 
         function appycrudSubmitForm(event, form) {

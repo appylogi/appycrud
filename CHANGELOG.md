@@ -2,6 +2,14 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.33] - 2026-08-29
+
+### Corregido
+- El filtro por columna de una FK (ej. "Ciudad Origen" en Trayectos) era un `<select>` con solo las primeras 500 opciones de `referenceOptions()` (orden alfabetico) -- en un catalogo grande (`tblciudades`, ~9300 filas reales) la mayoria de las ciudades nunca aparecian en el desplegable, sin importar cuantas filas por pagina se pidieran mostrar (esa era una confusion real reportada: aumentar el tamaño de pagina no tiene ninguna relacion con el tope del filtro). Ahora usa el mismo combobox buscable via AJAX que ya existia en el formulario de creacion/edicion (`renderSearchableSelectAjax` / `handleReferenceSearch`) -- busca en la base de datos, sin tope. Verificado en vivo: buscar "Pasto" en el filtro ahora la encuentra. Ver `tests/ReferenceFilterAjaxTest.php`.
+
+### Cambiado
+- La vista de listado ya no esta limitada a `max-w-6xl` (columna centrada, angosta) -- ahora usa el ancho completo de la pantalla (`w-full`), a pedido explicito reportado en Trayectos ("se ve muy reducido"). Requirio recompilar `assets/css/appycrud.css` (y su copia embebida en el repo de la app, `assets/appycrud/appycrud-embed.css`).
+
 ## [0.1.32] - 2026-08-28
 
 ### Corregido
