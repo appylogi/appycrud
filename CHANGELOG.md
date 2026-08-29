@@ -2,6 +2,12 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.34] - 2026-08-29
+
+### Corregido
+- El combobox buscable via AJAX del filtro de columna (agregado en 0.1.33) sacaba al usuario del campo apenas hacia foco: `appycrudRefSearchInput()` disparaba el refresco completo del listado (que reemplaza toda la fila de filtros por AJAX, incluida esa misma casilla) aun cuando la casilla ya estaba vacia y nada habia cambiado -- alcanzaba con hacer click para perder el foco antes de poder escribir nada. Reproducido y confirmado en un entorno de prueba aislado (con el bug: el foco se pierde ~500ms despues de hacer click; corregido: el foco se mantiene). Ahora solo se dispara el refresco cuando realmente HABIA un filtro activo que limpiar.
+- De paso, se encontro que `CrudRepository::searchReferenceOptions()` (backend de ese mismo combobox) rompia con "a GROUP BY clause is required before HAVING" en SQLite al buscar con un termino no vacio -- MySQL (usado en produccion) permite HAVING sin GROUP BY referenciando un alias del SELECT, pero SQLite no. Sin impacto real en produccion, pero bloqueaba escribir un test automatizado para esta ruta. Corregido agregando `GROUP BY` por la PK de la tabla referenciada (no-op real en ambos motores). Ver `tests/ReferenceSearchAjaxEndpointTest.php`.
+
 ## [0.1.33] - 2026-08-29
 
 ### Corregido

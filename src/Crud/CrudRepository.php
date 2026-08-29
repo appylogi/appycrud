@@ -775,15 +775,18 @@ class CrudRepository
         // (ver Connection), un mismo parametro nombrado no puede aparecer
         // dos veces en la misma consulta, y $labelExpr puede traer sus
         // propios parametros (labels compuestos tipo '{nombre}-{depto}').
-        // HAVING puede referenciar un alias del SELECT sin necesidad de
-        // GROUP BY.
+        // MySQL permite HAVING sin GROUP BY referenciando un alias del
+        // SELECT, pero SQLite no -- exige un GROUP BY previo ("a GROUP BY
+        // clause is required before HAVING", detectado escribiendo un test).
+        // Agrupar por $valueQ (la PK de la tabla referenciada, ya unica por
+        // fila) es un no-op real en ambos motores, asi que se agrega siempre.
         $havingSql = '';
         if (trim($query) !== '') {
             $havingSql = 'HAVING label LIKE :refsearch_term';
             $params[':refsearch_term'] = '%' . $query . '%';
         }
 
-        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} {$havingSql} ORDER BY label LIMIT :limit";
+        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} GROUP BY {$valueQ} {$havingSql} ORDER BY label LIMIT :limit";
         $stmt = $this->connection->pdo()->prepare($sql);
         foreach ($params + $labelParams as $key => $value) {
             $stmt->bindValue($key, $value);

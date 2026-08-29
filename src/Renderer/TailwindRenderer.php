@@ -1013,10 +1013,18 @@ class TailwindRenderer
             var dropdown = wrap.querySelector('.appycrud-ref-search-dropdown');
             var term = input.value;
 
+            // Solo limpiar+refrescar si HABIA un filtro activo que borrar --
+            // sin este chequeo, el simple focus() en una casilla ya vacia
+            // (term === '' desde el primer momento, nada cambio) disparaba
+            // igual el refresco del listado, que reemplaza por AJAX la fila
+            // de filtros entera -- incluida esta misma casilla -- sacando al
+            // usuario del campo antes de que pudiera escribir nada.
             if (term === '') {
                 var hiddenCleared = wrap.querySelector('input[type="hidden"]');
-                hiddenCleared.value = '';
-                appycrudRefSearchMaybeScheduleFilter(hiddenCleared);
+                if (hiddenCleared.value !== '') {
+                    hiddenCleared.value = '';
+                    appycrudRefSearchMaybeScheduleFilter(hiddenCleared);
+                }
             }
 
             document.querySelectorAll('.appycrud-ref-search-dropdown').forEach(function (d) {
