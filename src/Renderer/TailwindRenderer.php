@@ -1007,7 +1007,19 @@ class TailwindRenderer
 
         var appycrudRefSearchNoResults = {$refSearchNoResultsJs};
         var appycrudRefSearchTimer = null;
-
+        // Cada input dispara oninput Y onfocus (ver mas abajo el por que del
+        // onfocus). Dos pulsaciones seguidas cancelan el setTimeout pendiente
+        // con clearTimeout, pero NO cancelan un fetch que ya salio a la red --
+        // si esa respuesta vieja llega DESPUES de la respuesta nueva (el orden
+        // de red no esta garantizado), repuebla el dropdown con resultados
+        // obsoletos justo cuando el usuario ya esta mirando/clickeando los
+        // correctos. Sintoma reportado en vivo: "aparecen 2 [listas] y el
+        // primero no responde al click" -- el boton bajo el cursor era
+        // sustituido por el reemplazo tardio justo antes de que el click
+        // terminara de registrarse. Un contador por-wrap descarta cualquier
+        // respuesta que no sea la de la ULTIMA peticion disparada para ese
+        // combobox especifico (data-attribute, no una variable global: hay
+        // varios combobox de estos en la misma pagina a la vez).
         function appycrudRefSearchInput(input) {
             var wrap = input.closest('.appycrud-ref-search');
             var dropdown = wrap.querySelector('.appycrud-ref-search-dropdown');
@@ -1031,11 +1043,17 @@ class TailwindRenderer
                 if (d !== dropdown) { d.classList.add('hidden'); }
             });
 
+            var requestId = (parseInt(wrap.dataset.reqId || '0', 10) + 1);
+            wrap.dataset.reqId = String(requestId);
+
             clearTimeout(appycrudRefSearchTimer);
             appycrudRefSearchTimer = setTimeout(function () {
                 fetch(wrap.dataset.url + encodeURIComponent(term))
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
+                        // llego una respuesta mas nueva mientras esta viajaba: descartarla
+                        if (String(requestId) !== wrap.dataset.reqId) { return; }
+
                         dropdown.innerHTML = '';
                         var options = data.options || [];
                         if (options.length === 0) {
