@@ -91,7 +91,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.34';
+    public const VERSION = '0.1.35';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -590,7 +590,7 @@ class AppyCrud
 
         $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->insertFields)));
         $post = $this->processFileUploads($files, $post, null);
-        $errors = Validator::validate($this->schema, $post);
+        $errors = Validator::validate($this->schema, $post, $this->insertFields);
         $errors = array_merge_recursive($errors, $this->checkUniqueColumns($post, null));
 
         if ($errors !== []) {
@@ -646,7 +646,7 @@ class AppyCrud
         $post = $this->normalizeRichTextFields($this->normalizeMultiselectFields($this->restrictToFields($post, $this->editFields)));
         $post = $this->processFileUploads($files, $post + $removeFileFlags, $existingRow);
         $values = $pk !== null ? $post + [$pk->name => $id] : $post;
-        $errors = Validator::validate($this->schema, $post);
+        $errors = Validator::validate($this->schema, $post, $this->editFields);
         $errors = array_merge_recursive($errors, $this->checkUniqueColumns($post, $id));
 
         if ($errors !== []) {
