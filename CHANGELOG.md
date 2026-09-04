@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.37] - 2026-09-04
+
+### Corregido
+- El desplegable de los combobox buscables de columnas de referencia (FK) -- tanto el filtro de columna por AJAX (`appycrud-ref-search-dropdown`) como el multiselect con opciones precargadas (`appycrud-select2-dropdown`) -- usaba `w-full`, heredando el ancho comprimido de su columna en listados con muchas columnas. Reportado en un modulo real con 26 columnas (Acuerdos Consolidados Especiales, appylogisas): el filtro de "Ciudad Origen" quedaba tan angosto que cada opcion se partia en varias lineas, practicamente inutilizable. Se agrega `min-w-[16rem]` (junto con `w-full`, para que siga creciendo si el contenedor es mas ancho) en ambos casos -- aplica tanto al filtro de columna como al campo del formulario crear/editar. Requirio recompilar `assets/css/appycrud.css`.
+
 ## [0.1.34] - 2026-08-29
 
 ### Corregido

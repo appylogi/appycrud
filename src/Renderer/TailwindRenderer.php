@@ -399,7 +399,7 @@ class TailwindRenderer
             . '<input type="text" class="appycrud-ref-search-input w-full border border-gray-300 rounded-md px-2 py-1 text-xs" placeholder="' . $placeholder . '" value="' . $this->e($currentLabel) . '" autocomplete="off"'
             . ' oninput="appycrudRefSearchInput(this)" onfocus="appycrudRefSearchInput(this)">'
             . '<input type="hidden" form="appycrud-filter-form" name="' . $name . '" value="' . $this->e($current) . '">'
-            . '<div class="appycrud-ref-search-dropdown hidden absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"></div>'
+            . '<div class="appycrud-ref-search-dropdown hidden absolute z-10 mt-1 w-full min-w-[16rem] max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"></div>'
             . '</div>';
     }
 
@@ -1937,7 +1937,7 @@ class TailwindRenderer
             . '<input type="text" class="appycrud-ref-search-input ' . $class . '" placeholder="' . $placeholder . '" value="' . $this->e($currentLabel) . '" autocomplete="off"'
             . ' oninput="appycrudRefSearchInput(this)" onfocus="appycrudRefSearchInput(this)">'
             . '<input type="hidden" name="' . $name . '" value="' . $this->e($value) . '"' . $required . '>'
-            . '<div class="appycrud-ref-search-dropdown hidden absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"></div>'
+            . '<div class="appycrud-ref-search-dropdown hidden absolute z-10 mt-1 w-full min-w-[16rem] max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"></div>'
             . '</div>';
     }
 
@@ -1986,7 +1986,7 @@ class TailwindRenderer
                 <div class="appycrud-select2-chips flex flex-wrap gap-1">{$chips}</div>
                 <input type="text" class="appycrud-select2-input flex-1 min-w-[6rem] text-sm outline-none border-0 p-0.5" placeholder="{$placeholder}" oninput="appycrudSelect2Filter(this)" onfocus="appycrudSelect2Open(this)">
             </div>
-            <div class="appycrud-select2-dropdown hidden absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">{$dropdownOptions}</div>
+            <div class="appycrud-select2-dropdown hidden absolute z-10 mt-1 w-full min-w-[16rem] max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">{$dropdownOptions}</div>
         </div>
         HTML;
     }
