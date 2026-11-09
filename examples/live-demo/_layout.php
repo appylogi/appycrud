@@ -9,7 +9,8 @@ function appycrud_demo_page(string $title, string $description, string $snippet,
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= htmlspecialchars($title) ?> — Demo AppyCrud</title>
-<link rel="stylesheet" href="../../assets/css/appycrud.css">
+<?php $demoCss = is_file(__DIR__.'/appycrud/assets/css/appycrud.css') ? 'appycrud/assets/css/appycrud.css' : '../../assets/css/appycrud.css'; ?>
+<link rel="stylesheet" href="<?= htmlspecialchars($demoCss) ?>?v=<?= filemtime(__DIR__.'/'.$demoCss) ?>">
 <style>
   :root{--brand:#4f46e5;--dark:#0b0f19}
   body{background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;color:#0f172a}
@@ -68,6 +69,7 @@ function appycrud_demo_page(string $title, string $description, string $snippet,
 </head>
 <body>
   <div class="demo-bar">
+    <span>AppyCrud <?= htmlspecialchars(\Appylogi\AppyCrud\AppyCrud::VERSION) ?> · <a href="rendimiento.php">Paginación rápida</a></span>
     <div><span class="tag">DEMO</span>Caja de arena: crea, edita o borra libremente — nadie mas ve tus cambios.</div>
     <div><a href="?reset=1">Reiniciar datos</a> &nbsp;·&nbsp; <a href="./">&larr; Todos los ejemplos</a> &nbsp;·&nbsp; <a href="https://github.com/appylogi/appycrud" target="_blank" rel="noopener">GitHub</a></div>
   </div>

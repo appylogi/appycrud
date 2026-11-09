@@ -2,9 +2,10 @@
 
 Esta es la misma demo que corre en [appycrud.appylogi.com/demo](https://appycrud.appylogi.com/demo/),
 incluida en el repo para que cualquiera que lo clone la tenga localmente sin
-depender del sitio público. Son 5 páginas, cada una enfocada en un grupo de
+depender del sitio público. Son 6 páginas, cada una enfocada en un grupo de
 características, con el fragmento de código real que las genera:
 
+- **rendimiento.php** — paginación sin COUNT, cursores por PK, filtros manuales y exportaciones filtradas limitadas.
 - **basico.php** — listado, filtros, búsqueda, orden AJAX, paginación y `actionsPosition`.
 - **relaciones.php** — llave foránea con `conditions`, select buscable automático (+8 opciones) y `ManyToMany`.
 - **campos.php** — catálogo de tipos de campo (color, password_toggle, richtext, multiselect_searchable, fecha).

@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'list.page_simple' => 'Page :page · :shown records shown',
+    'list.order_by_code' => 'Sort by code',
+    'list.export_filter_limit' => 'Apply filters to export up to :limit records per file. Narrow your criteria and try again.',
     'update.banner' => 'A new AppyCrud version is available: v:version.',
     'update.view_changes' => 'View changes',
     'update.dismiss' => 'Dismiss',

@@ -66,6 +66,10 @@ class TailwindRenderer
             ? $this->renderFilterRow($schema, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $filtersEnabled, $searchEnabled, $filterableFields, $advancedFilters, $referenceOptions)
             : '';
 
+        if (!($features['autoFilter'] ?? true)) {
+            $searchAndFilters = str_replace('id="appycrud-filter-form"', 'id="appycrud-filter-form" data-autofilter="0"', $searchAndFilters);
+        }
+
         $toolbar = ($features['create'] ?? true)
             ? '<button type="button" onclick="appycrudOpenModal(\'' . $createUrl . '\')" class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">' . $this->icon('plus') . '<span>' . $this->e($t->t('list.new')) . '</span></button>'
             : '';
@@ -197,7 +201,10 @@ class TailwindRenderer
 
         $dataHeaders = '';
         foreach ($columns as $column) {
-            $dataHeaders .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $this->renderSortLink($column, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $advancedFilters) . '</th>';
+            $sortable = ($features['sortableFields'] ?? null) === null || in_array($column->name, $features['sortableFields'], true);
+            $label = $sortable ? $this->renderSortLink($column, $baseUrl, $activeFilters, $search, $orderBy, $orderDir, $advancedFilters) : $this->e($column->label);
+            if ($sortable && $column->reference !== null && ($features['referenceOrderByValue'] ?? false)) { $label = str_replace('<a ', '<a title="' . $this->e($t->t('list.order_by_code')) . '" ', $label); }
+            $dataHeaders .= '<th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-600">' . $label . '</th>';
         }
 
         $headers = $actionsOnLeft
@@ -277,8 +284,17 @@ class TailwindRenderer
         $prevUrl = $this->e($baseUrl) . '?' . $this->buildListQuery($activeFilters, $search, $orderBy, $orderDir, $advancedFilters, max(1, $page - 1), $perPage);
         $nextUrl = $this->e($baseUrl) . '?' . $this->buildListQuery($activeFilters, $search, $orderBy, $orderDir, $advancedFilters, min($lastPage, $page + 1), $perPage);
 
+        $simple = !empty($pagination['simple']);
+        if ($simple) {
+            $prevUrl = $this->e($baseUrl) . '?' . $this->buildListQuery($activeFilters, $search, $orderBy, $orderDir, $advancedFilters, max(1, $page - 1), $perPage);
+            $nextUrl = $this->e($baseUrl) . '?' . $this->buildListQuery($activeFilters, $search, $orderBy, $orderDir, $advancedFilters, $page + 1, $perPage);
+            if (!empty($pagination['cursor_prev'])) { $prevUrl .= '&amp;cursor=' . rawurlencode($pagination['cursor_prev']); }
+            if (!empty($pagination['cursor_next'])) { $nextUrl .= '&amp;cursor=' . rawurlencode($pagination['cursor_next']); }
+        }
+
         $prevDisabled = $page <= 1;
-        $nextDisabled = $page >= $lastPage;
+        $nextDisabled = $simple ? !$pagination['hasNext'] : $page >= $lastPage;
+        if ($simple) { $prevDisabled = !$pagination['hasPrev']; }
         $navClass = 'inline-flex items-center px-2 py-1 rounded-md border text-sm';
 
         $prevLink = $prevDisabled
@@ -297,13 +313,14 @@ class TailwindRenderer
             }
             $perPageSelect = '<label class="flex items-center gap-1.5 text-sm text-gray-500">'
                 . $this->e($t->t('list.per_page'))
-                . '<select onchange="var p=new URLSearchParams(location.search);p.set(\'perPage\',this.value);p.delete(\'page\');location.search=p.toString();" class="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white">' . $options . '</select>'
+                . '<select onchange="var p=new URLSearchParams(location.search);p.set(\'perPage\',this.value);p.delete(\'page\');p.delete(\'cursor\');location.search=p.toString();" class="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white">' . $options . '</select>'
                 . '</label>';
         }
 
         $total = (int) ($pagination['total'] ?? 0);
         $recordsWord = $t->t($total === 1 ? 'list.record_singular' : 'list.record_plural');
         $pageInfo = $t->t('list.page_of', ['page' => $page, 'lastPage' => $lastPage, 'total' => $total, 'recordsWord' => $recordsWord]);
+        if ($simple) { $pageInfo = $t->t('list.page_simple', ['page' => $page, 'shown' => count($pagination['rows'])]); }
 
         return '<div class="mt-3 flex items-center justify-between flex-wrap gap-3 print:hidden">'
             . '<p class="text-sm text-gray-500">' . $this->e($pageInfo) . '</p>'
@@ -1134,6 +1151,7 @@ class TailwindRenderer
 
         function appycrudScheduleFilter(form) {
             clearTimeout(appycrudFilterTimer);
+            if (form && form.dataset.autofilter === '0') { return; }
             appycrudFilterTimer = setTimeout(function () { appycrudApplyFilters(form); }, 500);
         }
 
@@ -1159,28 +1177,39 @@ class TailwindRenderer
             appycrudSubmitFilters(event, document.getElementById('appycrud-filter-form'));
         }
 
+        var appycrudFilterController = null;
+        var appycrudFilterSequence = 0;
         function appycrudApplyFilters(form) {
+            if (!form) { return; }
             var params = new URLSearchParams(new FormData(form));
+            params.delete('cursor'); params.delete('page');
             var query = params.toString();
             var url = form.getAttribute('action') + (query ? '?' + query : '');
-
             history.replaceState(null, '', url);
-
+            var sequence = ++appycrudFilterSequence;
+            if (appycrudFilterController) { appycrudFilterController.abort(); }
+            appycrudFilterController = typeof AbortController !== 'undefined' ? new AbortController() : null;
             var loading = document.getElementById('appycrud-list-loading');
-            // Pequeno retraso antes de mostrar el spinner: en tablas chicas la
-            // respuesta llega en unos ms y el spinner solo parpadearia sin
-            // aportar nada; en tablas grandes, donde de verdad se nota la
-            // espera, el usuario ya lo ve para entonces.
-            var showTimer = setTimeout(function () { if (loading) { loading.classList.remove('hidden'); } }, 200);
-
-            fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-                .then(function (r) { return r.text(); })
+            var showTimer = setTimeout(function () { if (sequence === appycrudFilterSequence && loading) { loading.classList.remove('hidden'); } }, 200);
+            var options = { headers: { 'X-Requested-With': 'XMLHttpRequest' } };
+            if (appycrudFilterController) { options.signal = appycrudFilterController.signal; }
+            fetch(url, options)
+                .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.text(); })
                 .then(function (html) {
+                    if (sequence !== appycrudFilterSequence) { return; }
+                    var error = document.getElementById('appycrud-filter-error');
+                    if (error) { error.remove(); }
                     document.getElementById('appycrud-list-body').innerHTML = html;
+                })
+                .catch(function (error) {
+                    if (sequence !== appycrudFilterSequence || error.name === 'AbortError') { return; }
+                    var message = document.getElementById('appycrud-filter-error');
+                    if (!message) { message = document.createElement('p'); message.id = 'appycrud-filter-error'; message.setAttribute('role', 'alert'); message.className = 'text-sm text-red-700 mb-2'; form.appendChild(message); }
+                    message.textContent = 'No se pudo actualizar el listado. Conservamos los filtros; vuelve a intentar.';
                 })
                 .finally(function () {
                     clearTimeout(showTimer);
-                    if (loading) { loading.classList.add('hidden'); }
+                    if (sequence === appycrudFilterSequence && loading) { loading.classList.add('hidden'); }
                 });
         }
 

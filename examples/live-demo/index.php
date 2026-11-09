@@ -1,6 +1,7 @@
 <?php
 
 $ejemplos = [
+    ['href'=>'rendimiento.php','titulo'=>'Paginación rápida para tablas grandes','descripcion'=>'Sin conteo total, cursores por ID, filtros manuales y exportación acotada. Prueba las mejoras de rendimiento de AppyCrud 0.1.38.','config'=>'paginationMode, sortableFields, referenceOrderByValue, autoFilter, exportMaxRows'],
     [
         'href' => 'basico',
         'titulo' => 'Listado, filtros y paginación',

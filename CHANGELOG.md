@@ -2,6 +2,24 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
+## [0.1.38] - 2026-11-09
+
+### Agregado
+- Modo optativo `paginationMode=simple`, sin COUNT y con cursores firmados en órdenes por PK; paginación exacta anterior conservada por defecto.
+- `sortableFields`, `referenceOrderByValue`, `autoFilter` y `exportMaxRows` para configurar tablas masivas sin imponer esas restricciones a los otros módulos.
+- Sexto ejemplo público, `rendimiento.php`, con 600 filas ficticias por sesión, navegación por cursor, filtros manuales y exportación filtrada acotada.
+- Documentación de opciones y pruebas reproducibles: 55 comprobaciones PHP aisladas y 14 de concurrencia AJAX sin red.
+
+### Mejorado y corregido
+- Caché de opciones de referencia por repositorio/petición, conservando condiciones y etiquetas de valores fuera del límite.
+- Los filtros AJAX abortan consultas anteriores y descartan respuestas/finally atrasados; conservan datos ante errores.
+- Exportación, impresión y clonación directas respetan las opciones de permiso.
+- Plantilla de demos con versión visible y caché de CSS por modificación del archivo.
+
+### Datos y validación
+- Sin migraciones ni datos de negocio. Nuevo ejemplo usa una caja de arena temporal por visitante, sin reiniciar las existentes.
+- La suite nativa pasa 29 tests y 61 aserciones; también pasan las comprobaciones nuevas de PHP y AJAX. El código general proviene de la mejora validada en Appylogi 0.36.0; la configuración específica de acuerdos queda en esa aplicación.
+
 ## [0.1.37] - 2026-09-04
 
 ### Corregido

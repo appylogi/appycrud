@@ -1,0 +1,18 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+const renderer = fs.readFileSync(new URL('../src/Renderer/TailwindRenderer.php',import.meta.url),'utf8'); const source=renderer.slice(renderer.indexOf('        var appycrudFilterTimer ='),renderer.indexOf('        function appycrudOpenAdvancedFilter()'));
+let checks=0;const ck=(v,m)=>{if(!v)throw new Error(m);checks++;};
+function fixture(abort=true){let ids=new Map(),jobs=new Map(),seq=0,requests=[],history=[];
+const body={innerHTML:'original'};const form={dataset:{},fields:[['filter[client]','1'],['cursor','old'],['page','4']],getAttribute:()=>'/items',appendChild(el){ids.set(el.id,el);}};
+const loading={hidden:true,classList:{remove(){loading.hidden=false;},add(){loading.hidden=true;}}};
+ids.set('appycrud-list-body',body);ids.set('appycrud-filter-form',form);ids.set('appycrud-list-loading',loading);
+const ctx={URLSearchParams,FormData:class{constructor(form){this.fields=form.fields;}[Symbol.iterator](){return this.fields[Symbol.iterator]();}},AbortController:abort?AbortController:undefined,history:{replaceState(a,b,u){history.push(u);}},document:{getElementById:k=>ids.get(k)||null,createElement(){return{setAttribute(k,v){this[k]=v;},remove(){ids.delete(this.id);}};}},setTimeout(fn,ms){jobs.set(++seq,{fn,ms});return seq;},clearTimeout(id){jobs.delete(id);},fetch(url,options){let resolve,reject;let p=new Promise((r,j)=>{resolve=r;reject=j;});requests.push({url,options,resolve,reject});return p;}};
+vm.createContext(ctx);vm.runInContext(source,ctx);return{ctx,ids,form,body,loading,jobs,requests,run(ms){for(let [k,j]of [...jobs])if(j.ms===ms){jobs.delete(k);j.fn();}}};}
+const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();}; const response=html=>({ok:true,text:async()=>html});
+let f=fixture();f.form.dataset.autofilter='0';f.ctx.appycrudScheduleFilter(f.form);ck(f.jobs.size===0&&f.requests.length===0,'manual filter does not submit');
+f.form.dataset.autofilter='1';f.ctx.appycrudScheduleFilter(f.form);f.ctx.appycrudScheduleFilter(f.form);ck([...f.jobs.values()].filter(x=>x.ms===500).length===1,'debounce keeps only last timer');f.run(500);ck(f.requests.length===1,'normal filter request');ck(!f.requests[0].url.includes('cursor')&&!f.requests[0].url.includes('page='),'filters reset cursor/page');
+f.ctx.appycrudApplyFilters(f.form);ck(f.requests[0].options.signal.aborted,'previous GET aborted');f.run(200);ck(!f.loading.hidden,'current spinner shown');f.requests[0].resolve(response('old'));await flush();ck(f.body.innerHTML==='original'&&!f.loading.hidden,'stale response/finally ignored');f.requests[1].resolve(response('new'));await flush();ck(f.body.innerHTML==='new'&&f.loading.hidden,'new response rendered');
+f.ctx.appycrudApplyFilters(f.form);f.requests[2].resolve({ok:false,status:500});await flush();ck(f.body.innerHTML==='new','failure preserves rows');ck(f.ids.get('appycrud-filter-error').role==='alert','failure accessible message');ck(f.form.fields[0][1]==='1','failure preserves filters');f.ctx.appycrudApplyFilters(f.form);f.requests[3].resolve(response('recovered'));await flush();ck(!f.ids.has('appycrud-filter-error')&&f.body.innerHTML==='recovered','recovery clears warning');
+f.ctx.appycrudApplyFilters(f.form);f.requests[4].reject(Object.assign(new Error(),{name:'AbortError'}));await flush();ck(!f.ids.has('appycrud-filter-error'),'abort is silent');
+f=fixture(false);f.ctx.appycrudApplyFilters(f.form);f.ctx.appycrudApplyFilters(f.form);f.requests[1].resolve(response('newest'));await flush();f.requests[0].resolve(response('outdated'));await flush();ck(f.body.innerHTML==='newest','sequence fallback without AbortController');
+const result={status:'PASS',checks,realNetwork:0,businessActions:0};console.log(JSON.stringify(result));

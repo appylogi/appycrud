@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'list.page_simple' => 'Página :page · :shown registros mostrados',
+    'list.order_by_code' => 'Ordenar por código',
+    'list.export_filter_limit' => 'Aplica filtros para exportar hasta :limit registros por archivo. Reduce el rango o los criterios y vuelve a exportar.',
     'update.banner' => 'Hay una nueva version de AppyCrud disponible: v:version.',
     'update.view_changes' => 'Ver cambios',
     'update.dismiss' => 'Descartar',

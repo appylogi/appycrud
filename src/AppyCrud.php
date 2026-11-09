@@ -49,6 +49,10 @@ use InvalidArgumentException;
  *     listado, exportar, ver, editar y eliminar. Ver Crud\Condition.
  *   - 'insertDefaults' => array<string,mixed> valores forzados en cada insert,
  *     ignorando lo que mande el cliente (ej. ['empresa_id' => $idEmpresaActual]).
+ *   - 'paginationMode' => 'exact' (default) | 'simple' (no COUNT, signed PK cursors).
+ *   - 'sortableFields' => string[]|null (default all); 'referenceOrderByValue' => bool (default false).
+ *   - 'autoFilter' => bool (default true); false requires applying filters explicitly.
+ *   - 'exportMaxRows' => int|null (default unlimited); opts into filtered, bounded web downloads.
  *   - 'defaultOrderBy' / 'defaultOrderDir' => orden usado cuando la URL no trae
  *     orderBy/orderDir explicitos (el usuario puede cambiarlo haciendo clic en
  *     cualquier columna del listado).
@@ -91,7 +95,7 @@ use InvalidArgumentException;
 class AppyCrud
 {
     /** Version instalada de la libreria — se actualiza a mano en cada release (ver CHANGELOG.md). */
-    public const VERSION = '0.1.37';
+    public const VERSION = '0.1.38';
 
     private TableSchema $schema;
     private CrudRepository $repository;
@@ -161,6 +165,11 @@ class AppyCrud
         }
 
         $this->features = [
+            'paginationMode' => $options['paginationMode'] ?? 'exact',
+            'sortableFields' => $options['sortableFields'] ?? null,
+            'referenceOrderByValue' => $options['referenceOrderByValue'] ?? false,
+            'autoFilter' => $options['autoFilter'] ?? true,
+            'exportMaxRows' => $options['exportMaxRows'] ?? null,
             'export' => $options['export'] ?? true,
             'create' => $options['create'] ?? true,
             'edit' => $options['edit'] ?? true,
@@ -226,8 +235,27 @@ class AppyCrud
         $where = $options['where'] ?? [];
         $insertDefaults = $options['insertDefaults'] ?? [];
 
-        $this->repository = new CrudRepository($connection, $this->schema, $softDeleteColumn, $where, $insertDefaults);
+        $this->repository = new CrudRepository($connection, $this->schema, $softDeleteColumn, $where, $insertDefaults, (bool) $this->features['referenceOrderByValue']);
         $this->renderer = new TailwindRenderer(new Translator($locale));
+    }
+
+    private function encodeListCursor(string $id, string $direction, string $scope): string
+    {
+        $payload = json_encode(['id' => $id, 'direction' => $direction, 'scope' => $scope], JSON_THROW_ON_ERROR);
+        return rtrim(strtr(base64_encode(json_encode(['payload' => $payload, 'signature' => hash_hmac('sha256', $payload, $this->csrfToken())], JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
+    }
+
+    private function decodeListCursor(mixed $token, string $scope): ?array
+    {
+        if (!is_string($token) || strlen($token) > 2048) { return null; }
+        $raw = base64_decode(strtr($token, '-_', '+/'), true);
+        $data = $raw !== false ? json_decode($raw, true) : null;
+        if (!is_array($data) || !is_string($data['payload'] ?? null) || !is_string($data['signature'] ?? null)
+            || !hash_equals(hash_hmac('sha256', $data['payload'], $this->csrfToken()), $data['signature'])) { return null; }
+        $cursor = json_decode($data['payload'], true);
+        if (!is_array($cursor) || !is_string($cursor['id'] ?? null) || strlen($cursor['id']) > 512
+            || !in_array($cursor['direction'] ?? null, ['prev', 'next'], true) || ($cursor['scope'] ?? null) !== $scope) { return null; }
+        return $cursor;
     }
 
     private function csrfToken(): string
@@ -264,6 +292,10 @@ class AppyCrud
         $action = $get['action'] ?? 'list';
 
         try {
+            if (($action === 'export' && !$this->features['export']) || ($action === 'print' && !$this->features['print']) || ($action === 'clone' && !$this->features['clone'])) {
+                $this->redirect($baseUrl);
+            }
+
             if (in_array($action, ['create', 'store'], true) && !($this->features['create'] ?? true)) {
                 $this->redirect($baseUrl);
             }
@@ -279,6 +311,19 @@ class AppyCrud
                     }
 
                     return ($rowAction->handler)($get['id'] ?? null, $get, $post);
+                }
+            }
+
+            if ($action === 'export' && $this->features['export'] && $this->features['exportMaxRows'] !== null) {
+                $filters = $this->features['filters'] ? $this->restrictToFields($get['filter'] ?? [], $this->allowedFilterFields()) : [];
+                $advanced = $this->features['filters'] ? $this->extractAdvancedFilters($get) : [];
+                $search = $this->features['search'] ? trim((string) ($get['q'] ?? '')) : '';
+                $limit = max(1, (int) $this->features['exportMaxRows']);
+                if ((!array_filter($filters, fn ($v) => $v !== '' && $v !== null) && $advanced === [] && $search === '')
+                    || $this->repository->exportExceedsLimit($filters, $search, $advanced, $limit)) {
+                    http_response_code(422);
+                    return '<div role="alert" class="p-4 border rounded-md">' . htmlspecialchars($this->renderer->translate('list.export_filter_limit', ['limit' => $limit]), ENT_QUOTES, 'UTF-8')
+                        . ' <a href="' . htmlspecialchars($baseUrl, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($this->renderer->translate('form.cancel'), ENT_QUOTES, 'UTF-8') . '</a></div>';
                 }
             }
 
@@ -517,7 +562,18 @@ class AppyCrud
         $advancedFilters = $this->features['filters'] ? $this->extractAdvancedFilters($get) : [];
         $perPage = $this->resolvePerPage($get);
 
-        $pagination = $this->repository->paginate($page, $perPage, $orderBy, $orderDir, $filters, $search, $advancedFilters);
+        if ($this->features['sortableFields'] !== null && !in_array($orderBy, $this->features['sortableFields'], true)) { $orderBy = $this->defaultOrderBy; }
+        $simple = $this->features['paginationMode'] === 'simple';
+        $scope = hash('sha256', serialize([$this->table, $filters, $search, $orderBy, $orderDir, $advancedFilters, $perPage]));
+        $seek = $simple ? $this->decodeListCursor($get['cursor'] ?? null, $scope) : null;
+        if (isset($get['cursor']) && $seek === null) { $page = 1; }
+        $pagination = $this->repository->paginate($page, $perPage, $orderBy, $orderDir, $filters, $search, $advancedFilters, !$simple, $seek);
+        if ($simple) {
+            foreach (['prev', 'next'] as $direction) {
+                $id = $pagination[$direction . 'Id'];
+                $pagination['cursor_' . $direction] = $id !== null ? $this->encodeListCursor($id, $direction, $scope) : null;
+            }
+        }
 
         return [$pagination, $filters, $search, $orderBy, $orderDir, $advancedFilters];
     }

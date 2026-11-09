@@ -78,7 +78,7 @@ if ($isAjax) {
 </html>
 ```
 
-Eso ya te da un CRUD completo sobre la tabla `clientes`. Ver [docs/uso.md](docs/uso.md) para el detalle de cada opción (`TableConfig`, `deleteMode`, `cloneExcludeColumns`, reglas de validación, cómo agregar un idioma, etc.), [examples/index.php](examples/index.php) para un ejemplo funcional completo con relaciones, y [examples/live-demo/](examples/live-demo/) para la misma demo de 5 páginas que corre en [appycrud.appylogi.com/demo](https://appycrud.appylogi.com/demo/) — se levanta local con `php -S localhost:8000` desde la raíz del repo.
+Eso ya te da un CRUD completo sobre la tabla `clientes`. Ver [docs/uso.md](docs/uso.md) para el detalle de cada opción (`TableConfig`, `deleteMode`, `cloneExcludeColumns`, reglas de validación, cómo agregar un idioma, etc.), [examples/index.php](examples/index.php) para un ejemplo funcional completo con relaciones, y [examples/live-demo/](examples/live-demo/) para la misma demo de 6 páginas que corre en [appycrud.appylogi.com/demo](https://appycrud.appylogi.com/demo/) — se levanta local con `php -S localhost:8000` desde la raíz del repo.
 
 ## Documentación
 
@@ -91,3 +91,9 @@ Eso ya te da un CRUD completo sobre la tabla `clientes`. Ver [docs/uso.md](docs/
 ## Licencia
 
 [MIT](LICENSE) — libre para cualquier uso, incluido comercial.
+
+## Rendimiento para tablas grandes (0.1.38)
+
+El modo habitual mantiene totales y orden alfabético de relaciones. Puedes optar por paginación sin COUNT, cursores por PK, orden por códigos indexados, filtros manuales y exportación acotada. Consulta [docs/rendimiento.md](docs/rendimiento.md) y el [ejemplo de rendimiento](examples/live-demo/rendimiento.php), disponible en https://appycrud.appylogi.com/demo/rendimiento.
+
+Pruebas: `composer test` (PHPUnit y 55 comprobaciones aisladas); `composer test:ajax` (Node, 14 comprobaciones sin red). Node solo se utiliza para esta prueba de desarrollo; no es dependencia de ejecución de la biblioteca.

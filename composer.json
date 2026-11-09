@@ -3,7 +3,14 @@
     "description": "Generador de CRUD generico en PHP vanilla, agnostico de framework, con soporte multi-motor via PDO.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["crud", "php", "vanilla", "tailwind", "generator", "admin"],
+    "keywords": [
+        "crud",
+        "php",
+        "vanilla",
+        "tailwind",
+        "generator",
+        "admin"
+    ],
     "authors": [
         {
             "name": "Appylogi",
@@ -33,6 +40,11 @@
         "phpunit/phpunit": "^10"
     },
     "scripts": {
-        "test": "phpunit"
+        "test": [
+            "@php vendor/bin/phpunit",
+            "@test:performance"
+        ],
+        "test:performance": "@php tests/performance-regression.php",
+        "test:ajax": "node tests/filters-race.mjs"
     }
 }

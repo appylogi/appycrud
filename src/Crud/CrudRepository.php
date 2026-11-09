@@ -17,6 +17,7 @@ use RuntimeException;
  */
 class CrudRepository
 {
+    private array $referenceBaseCache = [];
     /**
      * @param Condition[] $baseConditions condiciones WHERE aplicadas siempre (scoping)
      * @param array<string, mixed> $insertDefaults valores forzados en cada insert (ignora lo que mande el cliente)
@@ -27,6 +28,7 @@ class CrudRepository
         private ?string $softDeleteColumn = null,
         private array $baseConditions = [],
         private array $insertDefaults = [],
+        private bool $referenceOrderByValue = false,
     ) {
     }
 
@@ -85,7 +87,7 @@ class CrudRepository
         return [$sqlParts, $params];
     }
 
-    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = [], string $search = '', array $advancedFilters = []): array
+    public function paginate(int $page = 1, int $perPage = 20, string $orderBy = '', string $orderDir = 'ASC', array $filters = [], string $search = '', array $advancedFilters = [], bool $withTotal = true, ?array $seek = null): array
     {
         $page = max(1, $page);
         $offset = ($page - 1) * $perPage;
@@ -97,7 +99,7 @@ class CrudRepository
         if ($orderColumn !== null) {
             $dir = strtoupper($orderDir) === 'DESC' ? 'DESC' : 'ASC';
 
-            if ($orderColumn->reference !== null) {
+            if ($orderColumn->reference !== null && !$this->referenceOrderByValue) {
                 // Ordenar una FK por su id crudo no dice nada al usuario (ej.
                 // "Ciudad Origen" saldria por id, no alfabetico) -- se ordena
                 // por el mismo label que ya se muestra en la columna.
@@ -109,16 +111,37 @@ class CrudRepository
         }
 
         [$whereSql, $params] = $this->buildWhereClause($filters, $search, $advancedFilters);
-
+        $pk = $this->schema->primaryKey();
+        $canSeek = !$withTotal && $pk !== null && $orderBy === $pk->name;
+        if (!$withTotal && $pk !== null && $orderColumn !== null && !$canSeek) {
+            $orderSql .= ', ' . $this->connection->quoteIdentifier($pk->name) . (strtoupper($orderDir) === 'DESC' ? ' DESC' : ' ASC');
+        }
+        $seeking = $canSeek && $seek !== null;
+        $backward = $seeking && $seek['direction'] === 'prev';
+        if ($seeking) {
+            $ascending = strtoupper($orderDir) !== 'DESC';
+            $operator = ($ascending !== $backward) ? '>' : '<';
+            $whereSql .= ($whereSql === '' ? 'WHERE ' : ' AND ') . $this->connection->quoteIdentifier($pk->name) . ' ' . $operator . ' :appycrud_cursor';
+            $params[':appycrud_cursor'] = $seek['id'];
+            $offset = 0;
+            if ($backward) { $orderSql = 'ORDER BY ' . $this->connection->quoteIdentifier($pk->name) . ($ascending ? ' DESC' : ' ASC'); }
+        }
         $sql = "SELECT * FROM {$table} {$whereSql} {$orderSql} LIMIT :limit OFFSET :offset";
         $stmt = $this->connection->pdo()->prepare($sql);
-        foreach ($params + $orderParams as $key => $value) {
-            $stmt->bindValue($key, $value);
-        }
-        $stmt->bindValue(':limit', $perPage, \PDO::PARAM_INT);
+        foreach ($params + $orderParams as $key => $value) { $stmt->bindValue($key, $value); }
+        $stmt->bindValue(':limit', $perPage + ($withTotal ? 0 : 1), \PDO::PARAM_INT);
         $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll();
+        if (!$withTotal) {
+            $hasExtra = count($rows) > $perPage;
+            $rows = array_slice($rows, 0, $perPage);
+            if ($backward) { $rows = array_reverse($rows); }
+            return ['rows' => $rows, 'total' => null, 'lastPage' => null, 'page' => $page, 'perPage' => $perPage, 'simple' => true,
+                'hasPrev' => $backward ? $hasExtra : ($seeking || $page > 1), 'hasNext' => $backward ? true : $hasExtra,
+                'prevId' => $canSeek && $rows !== [] ? (string) $rows[0][$pk->name] : null,
+                'nextId' => $canSeek && $rows !== [] ? (string) $rows[count($rows)-1][$pk->name] : null];
+        }
 
         $countStmt = $this->connection->pdo()->prepare("SELECT COUNT(*) FROM {$table} {$whereSql}");
         $countStmt->execute($params);
@@ -474,6 +497,7 @@ class CrudRepository
     /** Los valores en $this->insertDefaults sobreescriben cualquier dato enviado por el cliente para esas columnas (ej. forzar empresa_id del usuario actual). */
     public function insert(array $data): string
     {
+        $this->referenceBaseCache = [];
         $data = array_merge($this->filterToKnownColumns($data), $this->insertDefaults);
 
         if (($pk = $this->schema->primaryKey()) !== null) {
@@ -503,6 +527,7 @@ class CrudRepository
 
     public function update(mixed $primaryKeyValue, array $data): void
     {
+        $this->referenceBaseCache = [];
         $pk = $this->requirePrimaryKey();
         $data = $this->filterToKnownColumns($data);
         unset($data[$pk->name]);
@@ -586,6 +611,7 @@ class CrudRepository
 
     public function delete(mixed $primaryKeyValue): void
     {
+        $this->referenceBaseCache = [];
         $pk = $this->requirePrimaryKey();
         $table = $this->connection->quoteIdentifier($this->schema->table);
         $pkColumn = $this->connection->quoteIdentifier($pk->name);
@@ -687,6 +713,20 @@ class CrudRepository
         return [$expr, $labelParams + $conditionParams];
     }
 
+    /** Bounded probe, not COUNT(*); only enabled by a table-specific export policy. */
+    public function exportExceedsLimit(array $filters, string $search, array $advancedFilters, int $limit): bool
+    {
+        [$where, $params] = $this->buildWhereClause($filters, $search, $advancedFilters);
+        $pk = $this->schema->primaryKey();
+        $column = $pk !== null ? $this->connection->quoteIdentifier($pk->name) : '1';
+        $table = $this->connection->quoteIdentifier($this->schema->table);
+        $stmt = $this->connection->pdo()->prepare("SELECT {$column} FROM {$table} {$where} LIMIT :export_probe");
+        foreach ($params as $key => $value) { $stmt->bindValue($key, $value); }
+        $stmt->bindValue(':export_probe', $limit + 1, \PDO::PARAM_INT);
+        $stmt->execute();
+        return count($stmt->fetchAll()) > $limit;
+    }
+
     public function referenceOptions(Column $column, int $limit = 500, array $mustIncludeValues = []): array
     {
         if ($column->reference === null) {
@@ -705,14 +745,21 @@ class CrudRepository
         [$conditionSql, $params] = $this->conditionsToSql($conditions, 'refcond_' . $column->name);
         $whereSql = $conditionSql === [] ? '' : 'WHERE ' . implode(' AND ', $conditionSql);
 
-        $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} ORDER BY label LIMIT :limit";
-        $stmt = $this->connection->pdo()->prepare($sql);
-        foreach ($params + $labelParams as $key => $value) {
-            $stmt->bindValue($key, $value);
+        $cacheKey = hash('sha256', serialize([$column->reference, $limit]));
+        if (array_key_exists($cacheKey, $this->referenceBaseCache)) {
+            $rows = $this->referenceBaseCache[$cacheKey];
+        } else {
+            $sql = "SELECT {$valueQ} AS value, {$labelExpr} AS label FROM {$tableQ} {$whereSql} ORDER BY label LIMIT :limit";
+            $stmt = $this->connection->pdo()->prepare($sql);
+            foreach ($params + $labelParams as $key => $value) {
+                $stmt->bindValue($key, $value);
+            }
+            $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll();
+
+            $this->referenceBaseCache[$cacheKey] = $rows;
         }
-        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
-        $stmt->execute();
-        $rows = $stmt->fetchAll();
 
         $mustIncludeValues = array_values(array_unique(array_filter(
             $mustIncludeValues,
